@@ -234,13 +234,13 @@ function sendPoseToViewer(translation) {
 
   // Für den Viewer sichtbarer umrechnen:
   // X: seitliche Bewegung stärker verstärken
-  const viewerX = 1.0 + rawX / 5;
+  const viewerX = 1.0 + rawX / 1;
 
   // Y: ungefähr auf Augen-/Handyhöhe im Raum zentrieren
-  const viewerY = 1.2 - rawY / 20;
+  const viewerY = 1.2 - rawY / 1;
 
   // Z: Abstand zur Wand, mit Offset damit die Kamera nicht "an der Wand klebt"
-  const viewerZ = 0.8 + rawZ / 20;
+  const viewerZ = 0.8 + rawZ / 1;
 
   const posePayload = {
     x: viewerX,
