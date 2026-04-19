@@ -211,31 +211,51 @@
      * Zusätzlich drehen wir das Vorzeichen / die Achsen etwas um,
      * damit es im Viewer natürlicher wirkt.
      ******************************************************************/
-    function sendPoseToViewer(translation) {
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        return;
-      }
+    /******************************************************************
+ * WERTE AN DEN VIEWER SENDEN
+ * ---------------------------------------------------------------
+ * Die Rohwerte aus POSIT sind für unseren virtuellen Raum
+ * noch nicht direkt passend.
+ *
+ * Deshalb:
+ * - X wird stärker skaliert
+ * - Y wird auf sinnvolle Raumhöhe gelegt
+ * - Z bekommt einen Offset, damit die Kamera sichtbar vor der Wand steht
+ ******************************************************************/
+function sendPoseToViewer(translation) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    return;
+  }
 
-      // translation[0] = seitlich
-      // translation[1] = vertikal
-      // translation[2] = Abstand
+  // Rohwerte aus POSIT
+  const rawX = translation[0];
+  const rawY = translation[1];
+  const rawZ = translation[2];
 
-      const posePayload = {
-        // Etwas skaliert und angepasst für den Viewer-Raum
-        x: translation[0] / 100,
-        y: 1.2 - translation[1] / 100,
-        z: Math.max(0.2, translation[2] / 100),
-        yaw: 0,
-        pitch: 0,
-        roll: 0
-      };
+  // Für den Viewer sichtbarer umrechnen:
+  // X: seitliche Bewegung stärker verstärken
+  const viewerX = 1.0 + rawX / 30;
 
-      ws.send(JSON.stringify({
-        type: "pose",
-        data: posePayload
-      }));
-    }
+  // Y: ungefähr auf Augen-/Handyhöhe im Raum zentrieren
+  const viewerY = 1.2 - rawY / 60;
 
+  // Z: Abstand zur Wand, mit Offset damit die Kamera nicht "an der Wand klebt"
+  const viewerZ = 0.8 + rawZ / 80;
+
+  const posePayload = {
+    x: viewerX,
+    y: viewerY,
+    z: viewerZ,
+    yaw: 0,
+    pitch: 0,
+    roll: 0
+  };
+
+  ws.send(JSON.stringify({
+    type: "pose",
+    data: posePayload
+  }));
+}
     /******************************************************************
      * 10) RENDER-SCHLEIFE
      ******************************************************************/
