@@ -55,7 +55,8 @@
 
     <p id="status">Status: bereit</p>
     <p class="small">
-      Kamerawerte oben links. Am Marker selbst nur Rahmen, ID und X/Y/Z-Achsen.
+      Oben links siehst du nur die Kamerawerte.  
+      Direkt am Marker sieht man Rahmen, ID und die X/Y/Z-Achsen.
     </p>
 
     <div class="video-wrapper">
@@ -64,6 +65,7 @@
     </div>
   </div>
 
+  <!-- js-aruco2 -->
   <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
@@ -73,38 +75,70 @@
     /******************************************************************
      * 1) EINSTELLBARE PARAMETER
      ******************************************************************/
-    const MARKER_SIZE = 0.10;      // 10 cm
+
+    // Reale Markergröße
+    const MARKER_SIZE = 0.10; // 10 cm
+
+    // Abstand der Marker-Mittelpunkte
     const MARKER_SPACING_X = 0.80; // 80 cm
     const MARKER_SPACING_Y = 0.60; // 60 cm
-     const WS_URL = "wss://scaling-chainsaw-x5g5r9gj575pfppwq-8080.app.github.dev/";
 
-    // Nur Z aus POSIT verwenden, in Meter umgerechnet
-    const TRANSLATION_TO_METERS = 0.13;
+    // WSS-Adresse deines Servers
+    const WS_URL = "wss://scaling-chainsaw-x5g5r9gj575pfppwq-8080.app.github.dev/";
 
-    // Achsenlänge für Overlay
+    /*
+      Fokallänge in Pixeln für Distanzschätzung.
+      Das ist ein Demo-Kalibrierwert.
+      Wenn Z später noch zu klein / zu groß ist, DIESEN Wert anpassen.
+
+      Faustregel:
+      - Z zu klein  -> FOCAL_LENGTH_PX erhöhen
+      - Z zu groß   -> FOCAL_LENGTH_PX verringern
+    */
+    const FOCAL_LENGTH_PX = 1100;
+
+    /*
+      Wie stark Bildoffset in Weltbewegung übersetzt wird.
+      Damit steuerst du, wie empfindlich links/rechts/oben/unten reagiert.
+    */
+    const IMAGE_TO_WORLD_GAIN_X = 0.90;
+    const IMAGE_TO_WORLD_GAIN_Y = 0.75;
+
+    /*
+      Glättung:
+      0.0 = keine Glättung
+      1.0 = extrem träge
+    */
+    const SMOOTHING = 0.25;
+
+    /*
+      Distanzgrenzen für die Demo
+    */
+    const MIN_DISTANCE = 0.20;
+    const MAX_DISTANCE = 4.00;
+
+    /*
+      Achsenlänge für die Marker-Visualisierung
+    */
     const AXIS_LENGTH_METERS = 0.06;
 
-    // Glättung für ruhige Bewegung
-    const SMOOTHING = 0.65;
-
-    // Wie stark Bildoffset die Raumbewegung beeinflusst
-    const OFFSET_GAIN_X = 1.6;
-    const OFFSET_GAIN_Y = 1.4;
-
-    // Begrenzung der nutzbaren Distanz
-    const MIN_DISTANCE = 0.30;
-    const MAX_DISTANCE = 3.00;
+    /*
+      Nur diese Marker werden als gültige Wandmarker verwendet
+    */
     const VALID_IDS = new Set([0, 1, 2, 3]);
 
     /******************************************************************
-     * 2) FESTE WELTPOSITIONEN DER MARKERMITTELPUNKTE
+     * 2) WELTGEOMETRIE
+     * ---------------------------------------------------------------
+     * Diese Positionen müssen exakt zum Viewer passen.
      ******************************************************************/
     const WORLD_MARKERS = {
-  0: { x: 0.6, y: 1.5, z: 0.0 }, // oben links
-  1: { x: 1.4, y: 1.5, z: 0.0 }, // oben rechts
-  2: { x: 0.6, y: 0.9, z: 0.0 }, // unten links
-  3: { x: 1.4, y: 0.9, z: 0.0 }  // unten rechts
-};
+      0: { x: 0.6, y: 1.5, z: 0.0 }, // oben links
+      1: { x: 1.4, y: 1.5, z: 0.0 }, // oben rechts
+      2: { x: 0.6, y: 0.9, z: 0.0 }, // unten links
+      3: { x: 1.4, y: 0.9, z: 0.0 }  // unten rechts
+    };
+
     /******************************************************************
      * 3) HTML-ELEMENTE
      ******************************************************************/
@@ -156,18 +190,49 @@
         return smoothedPose;
       }
 
-      const alpha = 1 - SMOOTHING;
-      smoothedPose.x = lerp(smoothedPose.x, newPose.x, alpha);
-      smoothedPose.y = lerp(smoothedPose.y, newPose.y, alpha);
-      smoothedPose.z = lerp(smoothedPose.z, newPose.z, alpha);
-      smoothedPose.yaw = lerp(smoothedPose.yaw, newPose.yaw, alpha);
-      smoothedPose.pitch = lerp(smoothedPose.pitch, newPose.pitch, alpha);
-      smoothedPose.roll = lerp(smoothedPose.roll, newPose.roll, alpha);
+      smoothedPose.x = lerp(smoothedPose.x, newPose.x, SMOOTHING);
+      smoothedPose.y = lerp(smoothedPose.y, newPose.y, SMOOTHING);
+      smoothedPose.z = lerp(smoothedPose.z, newPose.z, SMOOTHING);
+      smoothedPose.yaw = lerp(smoothedPose.yaw, newPose.yaw, SMOOTHING);
+      smoothedPose.pitch = lerp(smoothedPose.pitch, newPose.pitch, SMOOTHING);
+      smoothedPose.roll = lerp(smoothedPose.roll, newPose.roll, SMOOTHING);
+
       return smoothedPose;
     }
 
+    function getMarkerCenter(marker) {
+      let x = 0;
+      let y = 0;
+      for (const c of marker.corners) {
+        x += c.x;
+        y += c.y;
+      }
+      return {
+        x: x / marker.corners.length,
+        y: y / marker.corners.length
+      };
+    }
+
+    function getMarkerPixelSize(marker) {
+      const c = marker.corners;
+
+      function dist(a, b) {
+        return Math.hypot(a.x - b.x, a.y - b.y);
+      }
+
+      const d1 = dist(c[0], c[1]);
+      const d2 = dist(c[1], c[2]);
+      const d3 = dist(c[2], c[3]);
+      const d4 = dist(c[3], c[0]);
+
+      return (d1 + d2 + d3 + d4) / 4;
+    }
+
     /******************************************************************
-     * 7) POSIT-VORBEREITUNG
+     * 7) POSIT FÜR ACHSEN
+     * ---------------------------------------------------------------
+     * Für die Raumposition nutzen wir POSIT NICHT mehr direkt.
+     * Aber für die Achsen am Marker ist es weiter nützlich.
      ******************************************************************/
     function convertCornersForPosit(corners) {
       return corners.map(corner => ({
@@ -196,7 +261,7 @@
     /******************************************************************
      * 8) 3D-PUNKT INS BILD PROJIZIEREN
      * ---------------------------------------------------------------
-     * Für die X/Y/Z-Achsen am Marker.
+     * Nur für die X/Y/Z-Linien am Marker.
      ******************************************************************/
     function projectPoint(rotation, translation, point3D) {
       const X =
@@ -286,54 +351,84 @@
     }
 
     /******************************************************************
-     * 10) KAMERAWERTE LINKS OBEN
+     * 10) KAMERAWERTE IM BILD
      ******************************************************************/
-    function drawCameraPoseText(cameraPose, visibleCount) {
+    function drawCameraPoseText(cameraPose, visibleCount, estDistance) {
       ctx.fillStyle = "yellow";
       ctx.font = "20px Arial";
       ctx.fillText(`Cam X: ${cameraPose.x.toFixed(2)} m`, 10, 30);
       ctx.fillText(`Cam Y: ${cameraPose.y.toFixed(2)} m`, 10, 60);
       ctx.fillText(`Cam Z: ${cameraPose.z.toFixed(2)} m`, 10, 90);
       ctx.fillText(`Marker: ${visibleCount}`, 10, 120);
+      ctx.fillText(`Dist: ${estDistance.toFixed(2)} m`, 10, 150);
     }
 
     /******************************************************************
-     * 11) STABILE DEMO-WELTLOGIK
+     * 11) STABILE BOARD-BASIERTE DEMO-LOGIK
      * ---------------------------------------------------------------
-     * Pro sichtbarem Marker:
-     * - Weltanker = feste Position des Markers an der Wand
-     * - Bildzentrum des Markers = links/rechts/oben/unten relativ dazu
-     * - Distanz = nur aus POSIT-Z
+     * Diese Logik nutzt:
+     * - sichtbare Marker-IDs
+     * - Mittelwert ihrer Weltpositionen
+     * - Mittelwert ihrer Bildpositionen
+     * - Distanz aus Markergröße in Pixeln
      *
-     * Mehrere Marker werden gemittelt.
+     * Dadurch gilt:
+     * - Stehst du mittig vor allen sichtbaren Markern, landest du
+     *   auch mittig im 3D-Raum
+     * - Mit nur einem Marker landest du vor genau diesem Marker
      ******************************************************************/
-    function estimateCameraFromMarker(marker, markerPose) {
-      const anchor = WORLD_MARKERS[marker.id];
-      if (!anchor || !markerPose) return null;
+    function estimateCameraPoseFromVisibleMarkers(markers) {
+      if (!markers || markers.length === 0) return null;
 
-      // Markerzentrum im Bild
-      let cx = 0;
-      let cy = 0;
-      for (const c of marker.corners) {
-        cx += c.x;
-        cy += c.y;
+      let sumWorldX = 0;
+      let sumWorldY = 0;
+      let sumImgX = 0;
+      let sumImgY = 0;
+      let sumDist = 0;
+      let distCount = 0;
+
+      for (const marker of markers) {
+        const world = WORLD_MARKERS[marker.id];
+        if (!world) continue;
+
+        const center = getMarkerCenter(marker);
+        const pixelSize = getMarkerPixelSize(marker);
+
+        sumWorldX += world.x;
+        sumWorldY += world.y;
+        sumImgX += center.x;
+        sumImgY += center.y;
+
+        if (pixelSize > 1) {
+          // Distanzschätzung aus Markergröße im Bild
+          const distance = (FOCAL_LENGTH_PX * MARKER_SIZE) / pixelSize;
+          sumDist += distance;
+          distCount++;
+        }
       }
-      cx /= marker.corners.length;
-      cy /= marker.corners.length;
 
-      // Normierter Offset im Bild
-      const normX = (cx - canvas.width / 2) / (canvas.width / 2);
-      const normY = (cy - canvas.height / 2) / (canvas.height / 2);
+      const visibleCount = markers.length;
+      const anchorX = sumWorldX / visibleCount;
+      const anchorY = sumWorldY / visibleCount;
+      const imgCenterX = sumImgX / visibleCount;
+      const imgCenterY = sumImgY / visibleCount;
 
-      // Distanz nur aus translation[2]
-      let distance = markerPose.translation[2] * TRANSLATION_TO_METERS;
+      let distance = distCount > 0 ? (sumDist / distCount) : 1.0;
       distance = clamp(distance, MIN_DISTANCE, MAX_DISTANCE);
 
-      // Kamera relativ zum Markeranker
-      // Marker links im Bild -> Kamera eher rechts vom Markeranker
-      // Marker oben im Bild -> Kamera eher höher
-      const camX = anchor.x - normX * distance * OFFSET_GAIN_X;
-      const camY = anchor.y + normY * distance * OFFSET_GAIN_Y;
+      // Bildoffset relativ zur Bildmitte
+      const normX = (imgCenterX - canvas.width / 2) / (canvas.width / 2);
+      const normY = (imgCenterY - canvas.height / 2) / (canvas.height / 2);
+
+      /*
+        Interpretation:
+        - Markergruppe links im Bild -> Kamera ist eher rechts der Markergruppe
+        - Markergruppe rechts im Bild -> Kamera ist eher links der Markergruppe
+        - Markergruppe oben im Bild -> Kamera ist eher höher
+        - Markergruppe unten im Bild -> Kamera ist eher tiefer
+      */
+      const camX = anchorX - normX * distance * IMAGE_TO_WORLD_GAIN_X;
+      const camY = anchorY + normY * distance * IMAGE_TO_WORLD_GAIN_Y;
       const camZ = distance;
 
       return {
@@ -342,30 +437,9 @@
         z: clamp(camZ, MIN_DISTANCE, MAX_DISTANCE),
         yaw: 0,
         pitch: 0,
-        roll: 0
-      };
-    }
-
-    function averageCameraPoses(cameraPoses) {
-      if (!cameraPoses || cameraPoses.length === 0) return null;
-
-      let sumX = 0;
-      let sumY = 0;
-      let sumZ = 0;
-
-      for (const pose of cameraPoses) {
-        sumX += pose.x;
-        sumY += pose.y;
-        sumZ += pose.z;
-      }
-
-      return {
-        x: sumX / cameraPoses.length,
-        y: sumY / cameraPoses.length,
-        z: sumZ / cameraPoses.length,
-        yaw: 0,
-        pitch: 0,
-        roll: 0
+        roll: 0,
+        visibleCount,
+        estDistance: distance
       };
     }
 
@@ -379,7 +453,14 @@
 
       ws.send(JSON.stringify({
         type: "pose",
-        data: stablePose
+        data: {
+          x: stablePose.x,
+          y: stablePose.y,
+          z: stablePose.z,
+          yaw: stablePose.yaw,
+          pitch: stablePose.pitch,
+          roll: stablePose.roll
+        }
       }));
     }
 
@@ -402,27 +483,23 @@
 
         drawMarkers(validMarkers);
 
-        const cameraCandidates = [];
-
+        // Achsen pro Marker einzeichnen
         for (const marker of validMarkers) {
-          const markerPose = estimateMarkerPose(marker);
-          if (!markerPose) continue;
-
-          drawAxes(markerPose.rotation, markerPose.translation);
-
-          const cameraPose = estimateCameraFromMarker(marker, markerPose);
-          if (cameraPose) {
-            cameraCandidates.push(cameraPose);
+          const pose = estimateMarkerPose(marker);
+          if (pose) {
+            drawAxes(pose.rotation, pose.translation);
           }
         }
 
-        const averagedCameraPose = averageCameraPoses(cameraCandidates);
+        // Raumposition nur aus Markergruppe + Bildlage + Markergröße schätzen
+        const cameraPose = estimateCameraPoseFromVisibleMarkers(validMarkers);
 
-        if (averagedCameraPose) {
-          drawCameraPoseText(averagedCameraPose, cameraCandidates.length);
-          sendCameraPoseToViewer(averagedCameraPose);
+        if (cameraPose) {
+          drawCameraPoseText(cameraPose, cameraPose.visibleCount, cameraPose.estDistance);
+          sendCameraPoseToViewer(cameraPose);
+
           statusEl.textContent =
-            `Status: Kamera läuft – ${validMarkers.length} gültige Marker – stabile Demo-Pose aktiv`;
+            `Status: Kamera läuft – ${validMarkers.length} gültige Marker – Board-Tracking aktiv`;
         } else {
           statusEl.textContent =
             `Status: Kamera läuft – ${validMarkers.length} gültige Marker`;
