@@ -44,8 +44,8 @@
 
   <div class="panel">
     <p>
-      Diese Seite nutzt die Kamera, erkennt ArUco-Marker, berechnet die Pose
-      und sendet die Werte live an den Viewer.
+      Diese Seite erkennt ArUco-Marker, zeichnet ihre Achsen ins Bild
+      und berechnet daraus die Kameraposition relativ zur festen Marker-Wand.
     </p>
 
     <div class="button-row">
@@ -55,7 +55,8 @@
 
     <p id="status">Status: bereit</p>
     <p class="small">
-      In diesem Schritt werden echte Pose-Daten an den WebSocket-Server gesendet.
+      Die Werte oben links sind Kamerawerte.  
+      Direkt am Marker werden nur Rahmen, ID und die X/Y/Z-Achsen angezeigt.
     </p>
 
     <div class="video-wrapper">
@@ -64,6 +65,7 @@
     </div>
   </div>
 
+  <!-- js-aruco2 -->
   <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
@@ -73,13 +75,60 @@
     /******************************************************************
      * 1) EINSTELLBARE PARAMETER
      ******************************************************************/
+
+    // Reale Markergröße in Metern
     const MARKER_SIZE = 0.10; // 10 cm
 
-    // HIER DEINE ECHTE WSS-ADRESSE EINTRAGEN
-     const WS_URL = "wss://scaling-chainsaw-x5g5r9gj575pfppwq-8080.app.github.dev/";
+    // Abstand der Marker-MITTELPUNKTE in Metern
+    const MARKER_SPACING_X = 0.80; // 80 cm
+    const MARKER_SPACING_Y = 0.60; // 60 cm
+
+    // WSS-Adresse deines WebSocket-Servers
+    const WS_URL = "wss://scaling-chainsaw-x5g5r9gj575pfppwq-8080.app.github.dev/";
+
+    /*
+      Kalibrierfaktor:
+      Die POSIT-Translation wird hier in Meter für den Viewer übersetzt.
+      Mit 0.01 bedeutet:
+      100 Roh-Einheiten ≈ 1 Meter
+
+      Falls dein Ausdruck oder deine Kamera später leicht anders reagiert,
+      kannst du DIESEN Wert feinjustieren.
+    */
+    const TRANSLATION_TO_METERS = 0.01;
+
+    /*
+      Achsenlänge für die Darstellung direkt am Marker im Kamerabild.
+      Das ist rein visuell.
+    */
+    const AXIS_LENGTH_METERS = 0.06; // 6 cm
+
+    /*
+      Nur diese IDs gelten als feste Weltmarker.
+    */
+    const VALID_IDS = new Set([0, 1, 2, 3]);
 
     /******************************************************************
-     * 2) HTML-ELEMENTE
+     * 2) FESTE WELTPOSITIONEN DER 4 MARKER
+     * ---------------------------------------------------------------
+     * Wandkoordinatensystem:
+     * - x = links/rechts entlang der Wand
+     * - y = Höhe
+     * - z = Abstand von der Wand in den Raum
+     *
+     * Wand selbst liegt bei z = 0
+     *
+     * Die Markerpositionen sind die MITTELPUNKTE der Marker.
+     ******************************************************************/
+    const WORLD_MARKERS = {
+      0: { x: 0.0,              y: MARKER_SPACING_Y, z: 0.0 }, // oben links
+      1: { x: MARKER_SPACING_X, y: MARKER_SPACING_Y, z: 0.0 }, // oben rechts
+      2: { x: 0.0,              y: 0.0,              z: 0.0 }, // unten links
+      3: { x: MARKER_SPACING_X, y: 0.0,              z: 0.0 }  // unten rechts
+    };
+
+    /******************************************************************
+     * 3) HTML-ELEMENTE
      ******************************************************************/
     const startCameraBtn = document.getElementById("startCameraBtn");
     const stopCameraBtn = document.getElementById("stopCameraBtn");
@@ -89,7 +138,7 @@
     const ctx = canvas.getContext("2d");
 
     /******************************************************************
-     * 3) GLOBALE VARIABLEN
+     * 4) GLOBALE VARIABLEN
      ******************************************************************/
     let stream = null;
     let animationId = null;
@@ -101,9 +150,7 @@
     });
 
     /******************************************************************
-     * 4) WEBSOCKET VERBINDUNG
-     * ---------------------------------------------------------------
-     * Diese Verbindung schickt später die Pose an den Server.
+     * 5) WEBSOCKET
      ******************************************************************/
     function connectSocket() {
       ws = new WebSocket(WS_URL);
@@ -122,12 +169,102 @@
     }
 
     /******************************************************************
-     * 5) MARKER ZEICHNEN
+     * 6) MARKER FÜR POSIT VORBEREITEN
+     * ---------------------------------------------------------------
+     * POSIT erwartet Marker-Ecken relativ zum Bildzentrum.
+     ******************************************************************/
+    function convertCornersForPosit(corners) {
+      return corners.map(corner => ({
+        x: corner.x - canvas.width / 2,
+        y: canvas.height / 2 - corner.y
+      }));
+    }
+
+    /******************************************************************
+     * 7) PROJEKTION: 3D-PUNKT -> 2D BILDPUNKT
+     * ---------------------------------------------------------------
+     * Damit zeichnen wir die X/Y/Z-Achsen direkt auf den Marker.
+     *
+     * rotation = 3x3 Rotationsmatrix
+     * translation = [tx, ty, tz]
+     * point3D = Punkt im lokalen Marker-Koordinatensystem
+     ******************************************************************/
+    function projectPoint(rotation, translation, point3D) {
+      const X =
+        rotation[0][0] * point3D.x +
+        rotation[0][1] * point3D.y +
+        rotation[0][2] * point3D.z +
+        translation[0];
+
+      const Y =
+        rotation[1][0] * point3D.x +
+        rotation[1][1] * point3D.y +
+        rotation[1][2] * point3D.z +
+        translation[1];
+
+      const Z =
+        rotation[2][0] * point3D.x +
+        rotation[2][1] * point3D.y +
+        rotation[2][2] * point3D.z +
+        translation[2];
+
+      // Einfache Pinhole-Projektion
+      const focal = canvas.width;
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+
+      return {
+        x: cx + (focal * X / Z),
+        y: cy - (focal * Y / Z)
+      };
+    }
+
+    /******************************************************************
+     * 8) ACHSEN AUF DEN MARKER ZEICHNEN
+     * ---------------------------------------------------------------
+     * X = rot
+     * Y = grün
+     * Z = blau
+     ******************************************************************/
+    function drawAxes(rotation, translation) {
+      const origin = projectPoint(rotation, translation, { x: 0, y: 0, z: 0 });
+      const xAxis = projectPoint(rotation, translation, { x: AXIS_LENGTH_METERS, y: 0, z: 0 });
+      const yAxis = projectPoint(rotation, translation, { x: 0, y: AXIS_LENGTH_METERS, z: 0 });
+      const zAxis = projectPoint(rotation, translation, { x: 0, y: 0, z: AXIS_LENGTH_METERS });
+
+      // X-Achse (rot)
+      ctx.beginPath();
+      ctx.moveTo(origin.x, origin.y);
+      ctx.lineTo(xAxis.x, xAxis.y);
+      ctx.strokeStyle = "red";
+      ctx.lineWidth = 4;
+      ctx.stroke();
+
+      // Y-Achse (grün)
+      ctx.beginPath();
+      ctx.moveTo(origin.x, origin.y);
+      ctx.lineTo(yAxis.x, yAxis.y);
+      ctx.strokeStyle = "lime";
+      ctx.lineWidth = 4;
+      ctx.stroke();
+
+      // Z-Achse (blau)
+      ctx.beginPath();
+      ctx.moveTo(origin.x, origin.y);
+      ctx.lineTo(zAxis.x, zAxis.y);
+      ctx.strokeStyle = "blue";
+      ctx.lineWidth = 4;
+      ctx.stroke();
+    }
+
+    /******************************************************************
+     * 9) MARKER ZEICHNEN
      ******************************************************************/
     function drawMarkers(markers) {
       for (const marker of markers) {
         const corners = marker.corners;
 
+        // Rahmen
         ctx.strokeStyle = "#00ff00";
         ctx.lineWidth = 3;
         ctx.beginPath();
@@ -146,7 +283,7 @@
         ctx.arc(corners[0].x, corners[0].y, 5, 0, Math.PI * 2);
         ctx.fill();
 
-        // ID anzeigen
+        // ID schreiben
         ctx.fillStyle = "#ff0000";
         ctx.font = "20px Arial";
         ctx.fillText("ID: " + marker.id, corners[0].x, corners[0].y - 10);
@@ -154,40 +291,28 @@
     }
 
     /******************************************************************
-     * 6) POSE-TEXT ZEICHNEN
+     * 10) KAMERAWERTE LINKS OBEN ZEICHNEN
      ******************************************************************/
-    function drawPoseText(translation) {
+    function drawCameraPoseText(cameraPose, visibleCount) {
       ctx.fillStyle = "yellow";
       ctx.font = "20px Arial";
 
-      ctx.fillText(`X: ${translation[0].toFixed(2)}`, 10, 30);
-      ctx.fillText(`Y: ${translation[1].toFixed(2)}`, 10, 60);
-      ctx.fillText(`Z: ${translation[2].toFixed(2)}`, 10, 90);
+      ctx.fillText(`Cam X: ${cameraPose.x.toFixed(2)} m`, 10, 30);
+      ctx.fillText(`Cam Y: ${cameraPose.y.toFixed(2)} m`, 10, 60);
+      ctx.fillText(`Cam Z: ${cameraPose.z.toFixed(2)} m`, 10, 90);
+      ctx.fillText(`Sichtbare Marker: ${visibleCount}`, 10, 120);
     }
 
     /******************************************************************
-     * 7) ECKEN FÜR POSIT KONVERTIEREN
+     * 11) POSE EINES EINZELNEN MARKERS BERECHNEN
      ******************************************************************/
-    function convertCornersForPosit(corners) {
-      return corners.map(corner => ({
-        x: corner.x - canvas.width / 2,
-        y: canvas.height / 2 - corner.y
-      }));
-    }
+    function estimateMarkerPose(marker) {
+      if (!posit) return null;
 
-    /******************************************************************
-     * 8) POSE AUS ERSTEM MARKER BERECHNEN
-     ******************************************************************/
-    function estimatePoseFromFirstMarker(markers) {
-      if (!markers || markers.length === 0 || !posit) {
-        return null;
-      }
-
-      const marker = markers[0];
       const positCorners = convertCornersForPosit(marker.corners);
       const pose = posit.pose(positCorners);
 
-      if (!pose || !pose.bestTranslation) {
+      if (!pose || !pose.bestTranslation || !pose.bestRotation) {
         return null;
       }
 
@@ -199,90 +324,112 @@
     }
 
     /******************************************************************
-     * 9) WERTE AN DEN SERVER SENDEN
+     * 12) AUS MARKERPOSE -> KAMERAPOSE IN WELTKOORDINATEN
      * ---------------------------------------------------------------
-     * Wir senden erstmal:
-     * - x
-     * - y
-     * - z
+     * translation = Marker relativ zur Kamera
+     * rotation    = Marker-Rotation relativ zur Kamera
      *
-     * yaw / pitch / roll bleiben vorerst 0.
+     * Kamera relativ zum Marker:
+     *   C_marker = - R^T * t
      *
-     * Zusätzlich drehen wir das Vorzeichen / die Achsen etwas um,
-     * damit es im Viewer natürlicher wirkt.
+     * Da alle Marker an der Wand gleich orientiert hängen,
+     * können wir diese lokale Kameraposition auf die feste
+     * Weltposition des jeweiligen Markers verschieben.
      ******************************************************************/
+    function markerPoseToWorldCameraPose(markerPose) {
+      const markerWorld = WORLD_MARKERS[markerPose.id];
+      if (!markerWorld) return null;
+
+      const R = markerPose.rotation;
+      const t = markerPose.translation;
+
+      // R^T * t berechnen
+      const rt0 = R[0][0] * t[0] + R[1][0] * t[1] + R[2][0] * t[2];
+      const rt1 = R[0][1] * t[0] + R[1][1] * t[1] + R[2][1] * t[2];
+      const rt2 = R[0][2] * t[0] + R[1][2] * t[1] + R[2][2] * t[2];
+
+      // Kamera relativ zum Marker
+      const camRelMarker = {
+        x: -rt0 * TRANSLATION_TO_METERS,
+        y: -rt1 * TRANSLATION_TO_METERS,
+        z: -rt2 * TRANSLATION_TO_METERS
+      };
+
+      /*
+        Weltannahme:
+        - Marker liegen alle auf derselben Wand
+        - Markerorientierung ist gleich
+        - Markerweltposition ist ihr Mittelpunkt
+
+        Daraus:
+        Kamera Welt = Marker Welt + Kamera relativ zu diesem Marker
+      */
+      return {
+        x: markerWorld.x + camRelMarker.x,
+        y: markerWorld.y + camRelMarker.y,
+        z: markerWorld.z + camRelMarker.z
+      };
+    }
+
     /******************************************************************
- * WERTE AN DEN VIEWER SENDEN
- * ---------------------------------------------------------------
- * Die Rohwerte aus POSIT sind für unseren virtuellen Raum
- * noch nicht direkt passend.
- *
- * Deshalb:
- * - X wird stärker skaliert
- * - Y wird auf sinnvolle Raumhöhe gelegt
- * - Z bekommt einen Offset, damit die Kamera sichtbar vor der Wand steht
- ******************************************************************/
-/******************************************************************
- * WERTE AN DEN VIEWER SENDEN
- * ---------------------------------------------------------------
- * Wichtig:
- * Wir zentrieren jetzt NICHT künstlich auf die Raummitte.
- * Stattdessen schicken wir die Pose deutlich direkter weiter,
- * damit wir sehen, wie sich die Rohwerte wirklich verhalten.
- *
- * Diese Version ist absichtlich ein Debug-/Kalibrierstand.
- ******************************************************************/
-function sendPoseToViewer(translation) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    return;
-  }
+     * 13) MITTELWERT AUS MEHREREN SICHTBAREN MARKERN BILDEN
+     ******************************************************************/
+    function averageCameraPoses(cameraPoses) {
+      if (!cameraPoses || cameraPoses.length === 0) return null;
 
-  // Rohwerte aus POSIT
-  const rawX = translation[0];
-  const rawY = translation[1];
-  const rawZ = translation[2];
+      let sumX = 0;
+      let sumY = 0;
+      let sumZ = 0;
 
-  // DEBUG: Rohwerte in Konsole ansehen
-  console.log("RAW translation:", {
-    rawX,
-    rawY,
-    rawZ
-  });
+      for (const pose of cameraPoses) {
+        sumX += pose.x;
+        sumY += pose.y;
+        sumZ += pose.z;
+      }
 
-  /*
-    Wichtige Idee:
-    Wir benutzen jetzt erstmal KEINE feste Raum-Mitte wie 1.0 oder 1.2,
-    sondern bilden die Werte deutlich direkter ab.
+      return {
+        x: sumX / cameraPoses.length,
+        y: sumY / cameraPoses.length,
+        z: sumZ / cameraPoses.length
+      };
+    }
 
-    Das ist noch nicht die finale Raumlogik,
-    aber damit sehen wir endlich, ob sich X/Y/Z sauber ändern.
-  */
-
-  const posePayload = {
-    x: rawX * 0.2,
-    y: rawY * -0.2,
-    z: rawZ * 0.2,
-    yaw: 0,
-    pitch: 0,
-    roll: 0
-  };
-
-  ws.send(JSON.stringify({
-    type: "pose",
-    data: posePayload
-  }));
-}
     /******************************************************************
-     * 10) RENDER-SCHLEIFE
+     * 14) AN VIEWER SENDEN
+     * ---------------------------------------------------------------
+     * Yaw/Pitch/Roll lassen wir hier noch bewusst 0.
+     * Der nächste Schritt wäre dann die Blickrichtung sauber
+     * aus der Rotationsmatrix abzuleiten.
+     ******************************************************************/
+    function sendCameraPoseToViewer(cameraPose) {
+      if (!ws || ws.readyState !== WebSocket.OPEN || !cameraPose) {
+        return;
+      }
+
+      ws.send(JSON.stringify({
+        type: "pose",
+        data: {
+          x: cameraPose.x,
+          y: cameraPose.y,
+          z: Math.max(0.10, cameraPose.z), // nicht hinter die Wand
+          yaw: 0,
+          pitch: 0,
+          roll: 0
+        }
+      }));
+    }
+
+    /******************************************************************
+     * 15) EIN FRAME VERARBEITEN
      ******************************************************************/
     function renderFrame() {
       if (video.readyState >= 2) {
-        // Canvas an Videogröße anpassen
+        // Canvas an echte Videoauflösung anpassen
         if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
           canvas.width = video.videoWidth;
           canvas.height = video.videoHeight;
 
-          // POSIT initialisieren, sobald Breite bekannt ist
+          // POSIT initialisieren, sobald die Breite bekannt ist
           posit = new POS.Posit(MARKER_SIZE, canvas.width);
         }
 
@@ -293,23 +440,45 @@ function sendPoseToViewer(translation) {
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
         // Marker erkennen
-        const markers = detector.detect(imageData);
+        const detectedMarkers = detector.detect(imageData);
 
-        // Marker zeichnen
-        drawMarkers(markers);
+        // Nur IDs 0-3 verwenden
+        const validMarkers = detectedMarkers.filter(marker => VALID_IDS.has(marker.id));
 
-        // Pose berechnen
-        const poseResult = estimatePoseFromFirstMarker(markers);
+        // Markerrahmen + IDs
+        drawMarkers(validMarkers);
 
-        if (poseResult) {
-          drawPoseText(poseResult.translation);
-          sendPoseToViewer(poseResult.translation);
+        // Für alle sichtbaren Marker Pose berechnen
+        const worldCameraPoses = [];
+
+        for (const marker of validMarkers) {
+          const markerPose = estimateMarkerPose(marker);
+
+          if (!markerPose) continue;
+
+          // Achsen direkt am Marker zeichnen
+          drawAxes(markerPose.rotation, markerPose.translation);
+
+          // Kamerapose in Weltkoordinaten aus diesem Marker berechnen
+          const worldCameraPose = markerPoseToWorldCameraPose(markerPose);
+
+          if (worldCameraPose) {
+            worldCameraPoses.push(worldCameraPose);
+          }
+        }
+
+        // Wenn mindestens ein Marker eine brauchbare Weltkamera liefert:
+        const averagedCameraPose = averageCameraPoses(worldCameraPoses);
+
+        if (averagedCameraPose) {
+          drawCameraPoseText(averagedCameraPose, worldCameraPoses.length);
+          sendCameraPoseToViewer(averagedCameraPose);
 
           statusEl.textContent =
-            `Status: Kamera läuft – ${markers.length} Marker erkannt – Pose wird gesendet`;
+            `Status: Kamera läuft – ${validMarkers.length} gültige Marker – Weltpose aktiv`;
         } else {
           statusEl.textContent =
-            `Status: Kamera läuft – ${markers.length} Marker erkannt`;
+            `Status: Kamera läuft – ${validMarkers.length} gültige Marker`;
         }
       }
 
@@ -317,13 +486,12 @@ function sendPoseToViewer(translation) {
     }
 
     /******************************************************************
-     * 11) KAMERA STARTEN
+     * 16) KAMERA STARTEN
      ******************************************************************/
     async function startCamera() {
       try {
         statusEl.textContent = "Status: Kamera wird gestartet...";
 
-        // WebSocket aufbauen
         if (!ws || ws.readyState > 1) {
           connectSocket();
         }
@@ -350,7 +518,7 @@ function sendPoseToViewer(translation) {
     }
 
     /******************************************************************
-     * 12) KAMERA STOPPEN
+     * 17) KAMERA STOPPEN
      ******************************************************************/
     function stopCamera() {
       if (animationId) {
@@ -366,11 +534,12 @@ function sendPoseToViewer(translation) {
 
       video.srcObject = null;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+
       statusEl.textContent = "Status: Kamera gestoppt";
     }
 
     /******************************************************************
-     * 13) BUTTONS
+     * 18) BUTTONS
      ******************************************************************/
     startCameraBtn.addEventListener("click", startCamera);
     stopCameraBtn.addEventListener("click", stopCamera);
