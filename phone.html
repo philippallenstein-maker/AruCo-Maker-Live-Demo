@@ -1,79 +1,181 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AruCo Phone</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    /* Zusätzliche Styles nur für diese Seite */
+    .video-wrapper {
+      margin-top: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    video, canvas {
+      width: 100%;
+      max-width: 520px;
+      border-radius: 12px;
+      border: 1px solid #ccc;
+      background: black;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .small {
+      font-size: 14px;
+      color: #555;
+    }
+  </style>
 </head>
 <body>
   <h1>iPhone Sender</h1>
 
   <div class="panel">
-    <p>Diese Seite sendet Test-Positionsdaten an den Viewer.</p>
-    <button id="startBtn">Test starten</button>
+    <p>
+      Diese Seite läuft später auf dem iPhone.  
+      In diesem Schritt öffnen wir zuerst nur die Kamera.
+    </p>
+
+    <div class="button-row">
+      <button id="startCameraBtn">Kamera starten</button>
+      <button id="stopCameraBtn">Kamera stoppen</button>
+    </div>
+
     <p id="status">Status: bereit</p>
+    <p class="small">
+      Ziel dieses Schritts: Das Live-Kamerabild soll sichtbar sein.
+    </p>
+
+    <div class="video-wrapper">
+      <!--
+        video:
+        Hier zeigt der Browser den Live-Kamerastream an.
+      -->
+      <video id="video" autoplay playsinline muted></video>
+
+      <!--
+        canvas:
+        Dieses Canvas brauchen wir später für Bildauswertung,
+        Marker-Erkennung und Overlays.
+        Im Moment zeichnen wir nur testweise das Videobild hinein.
+      -->
+      <canvas id="canvas" width="640" height="480"></canvas>
+    </div>
   </div>
 
   <script>
-    const WS_URL = "wss://scaling-chainsaw-x5g5r9gj575pfppwq-8080.app.github.dev/"; //Hier kommt dann immer die Aktuelle Adresse rein mit Wss anstatt https und den Port auf Public stellen damit alls funkt
-    const startBtn = document.getElementById("startBtn");
-    const status = document.getElementById("status");
+    /******************************************************************
+     * 1) HTML-ELEMENTE HOLEN
+     * ---------------------------------------------------------------
+     * Wir holen uns die Buttons, den Status, das Video und das Canvas.
+     ******************************************************************/
+    const startCameraBtn = document.getElementById("startCameraBtn");
+    const stopCameraBtn = document.getElementById("stopCameraBtn");
+    const statusEl = document.getElementById("status");
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
 
-    let intervalId = null;
-    let t = 0;
-    let ws = null;
+    /******************************************************************
+     * 2) STREAM-VARIABLE
+     * ---------------------------------------------------------------
+     * Hier speichern wir später den laufenden Kamerastream,
+     * damit wir ihn auch wieder sauber stoppen können.
+     ******************************************************************/
+    let stream = null;
 
-    function connectSocket() {
-      ws = new WebSocket(WS_URL);
-
-      ws.onopen = () => {
-        status.textContent = "Status: verbunden";
-      };
-
-      ws.onerror = () => {
-        status.textContent = "Status: Fehler bei Verbindung";
-      };
-
-      ws.onclose = () => {
-        status.textContent = "Status: Verbindung getrennt";
-      };
-    }
-
-    connectSocket();
-
-    startBtn.addEventListener("click", () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-        intervalId = null;
-        startBtn.textContent = "Test starten";
-        status.textContent = "Status: Test gestoppt";
-        return;
+    /******************************************************************
+     * 3) ZEICHEN-SCHLEIFE
+     * ---------------------------------------------------------------
+     * Diese Funktion kopiert jedes Frame vom Video ins Canvas.
+     *
+     * Warum machen wir das?
+     * - Später lesen wir genau aus diesem Canvas die Marker aus
+     * - wir haben dann direkten Zugriff auf die Bilddaten
+     ******************************************************************/
+    function drawVideoToCanvas() {
+      // Nur zeichnen, wenn das Video wirklich Daten hat
+      if (video.readyState >= 2) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       }
 
-      startBtn.textContent = "Test stoppen";
-      status.textContent = "Status: Test läuft";
+      // Nächstes Frame wieder anfordern
+      requestAnimationFrame(drawVideoToCanvas);
+    }
 
-      intervalId = setInterval(() => {
-        t += 0.08;
+    /******************************************************************
+     * 4) KAMERA STARTEN
+     * ---------------------------------------------------------------
+     * Hier fragen wir den Browser nach Kamerazugriff.
+     *
+     * Wichtige Punkte:
+     * - video: true = wir wollen die Kamera
+     * - facingMode: "environment" = bevorzugt Rückkamera am iPhone
+     ******************************************************************/
+    async function startCamera() {
+      try {
+        statusEl.textContent = "Status: Kamera wird gestartet...";
 
-        const pose = {
-          x: Math.cos(t) * 1.5,
-          y: 0.0,
-          z: Math.sin(t) * 1.0,
-          yaw: t,
-          pitch: 0.0,
-          roll: 0.0
-        };
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" }, // Rückkamera bevorzugen
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
 
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({
-            type: "pose",
-            data: pose
-          }));
-        }
-      }, 100);
-    });
+        // Stream in das Video-Element einhängen
+        video.srcObject = stream;
+
+        // Warten, bis Metadaten geladen sind
+        await video.play();
+
+        statusEl.textContent = "Status: Kamera läuft";
+
+        // Zeichen-Schleife starten
+        drawVideoToCanvas();
+
+      } catch (error) {
+        console.error("Fehler beim Starten der Kamera:", error);
+        statusEl.textContent = "Status: Kamerafehler";
+      }
+    }
+
+    /******************************************************************
+     * 5) KAMERA STOPPEN
+     * ---------------------------------------------------------------
+     * Wir stoppen alle Tracks des Streams.
+     ******************************************************************/
+    function stopCamera() {
+      if (stream) {
+        const tracks = stream.getTracks();
+        tracks.forEach(track => track.stop());
+        stream = null;
+      }
+
+      // Video zurücksetzen
+      video.srcObject = null;
+
+      // Canvas leeren
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      statusEl.textContent = "Status: Kamera gestoppt";
+    }
+
+    /******************************************************************
+     * 6) BUTTON-EVENTS
+     ******************************************************************/
+    startCameraBtn.addEventListener("click", startCamera);
+    stopCameraBtn.addEventListener("click", stopCamera);
   </script>
 </body>
 </html>
