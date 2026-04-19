@@ -6,7 +6,6 @@
   <title>AruCo Phone</title>
   <link rel="stylesheet" href="style.css" />
   <style>
-    /* Zusatz-Styles nur für diese Seite */
     .video-wrapper {
       margin-top: 20px;
       display: flex;
@@ -26,7 +25,6 @@
       color: #555;
     }
 
-    /* Nur das Canvas soll sichtbar sein */
     canvas {
       width: 100%;
       max-width: 520px;
@@ -36,7 +34,6 @@
       display: block;
     }
 
-    /* Video bleibt technisch im Hintergrund, wird aber nicht gezeigt */
     video {
       display: none;
     }
@@ -47,8 +44,8 @@
 
   <div class="panel">
     <p>
-      Diese Seite nutzt die Kamera, erkennt ArUco-Marker und berechnet
-      daraus die Pose eines Markers relativ zur Kamera.
+      Diese Seite nutzt die Kamera, erkennt ArUco-Marker, berechnet die Pose
+      und sendet die Werte live an den Viewer.
     </p>
 
     <div class="button-row">
@@ -58,34 +55,15 @@
 
     <p id="status">Status: bereit</p>
     <p class="small">
-      In diesem Schritt wird noch nichts an den Viewer gesendet.
-      Wir prüfen zuerst lokal, ob Marker-Erkennung und Pose stimmen.
+      In diesem Schritt werden echte Pose-Daten an den WebSocket-Server gesendet.
     </p>
 
     <div class="video-wrapper">
-      <!--
-        Das Video-Element bekommt den echten Kamerastream.
-        Es bleibt unsichtbar und dient nur als Quelle.
-      -->
       <video id="video" autoplay playsinline muted></video>
-
-      <!--
-        Das Canvas ist die einzige sichtbare Ausgabe.
-        Darin zeichnen wir:
-        - Kamerabild
-        - Markerrahmen
-        - ID
-        - Pose-Werte
-      -->
       <canvas id="canvas" width="640" height="480"></canvas>
     </div>
   </div>
 
-  <!--
-    js-aruco2:
-    Diese Library übernimmt die Marker-Erkennung.
-    Wir laden die nötigen Dateien direkt per CDN.
-  -->
   <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
@@ -94,18 +72,14 @@
   <script>
     /******************************************************************
      * 1) EINSTELLBARE PARAMETER
-     * ---------------------------------------------------------------
-     * MARKER_SIZE:
-     * Reale Markergröße in Metern.
-     * 0.10 = 10 cm
-     *
-     * Wenn dein Ausdruck später nicht exakt 10 cm ist,
-     * musst du NUR diesen Wert anpassen.
      ******************************************************************/
     const MARKER_SIZE = 0.10; // 10 cm
 
+    // HIER DEINE ECHTE WSS-ADRESSE EINTRAGEN
+    const WS_URL = "WSS_URL_HIER_EINTRAGEN";
+
     /******************************************************************
-     * 2) HTML-ELEMENTE HOLEN
+     * 2) HTML-ELEMENTE
      ******************************************************************/
     const startCameraBtn = document.getElementById("startCameraBtn");
     const stopCameraBtn = document.getElementById("stopCameraBtn");
@@ -116,39 +90,44 @@
 
     /******************************************************************
      * 3) GLOBALE VARIABLEN
-     * ---------------------------------------------------------------
-     * stream:
-     *   Kamerastream vom Handy
-     *
-     * animationId:
-     *   ID der laufenden Render-Schleife
-     *
-     * detector:
-     *   ArUco-Detektor
-     *
-     * posit:
-     *   Pose-Algorithmus, wird später initialisiert,
-     *   sobald die Canvas-Breite bekannt ist
      ******************************************************************/
     let stream = null;
     let animationId = null;
     let posit = null;
+    let ws = null;
 
     const detector = new AR.Detector({
       dictionaryName: "ARUCO"
     });
 
     /******************************************************************
-     * 4) MARKER ZEICHNEN
+     * 4) WEBSOCKET VERBINDUNG
      * ---------------------------------------------------------------
-     * Zeichnet den grünen Rahmen um erkannte Marker
-     * und schreibt die ID dazu.
+     * Diese Verbindung schickt später die Pose an den Server.
+     ******************************************************************/
+    function connectSocket() {
+      ws = new WebSocket(WS_URL);
+
+      ws.onopen = () => {
+        console.log("WebSocket verbunden");
+      };
+
+      ws.onerror = (err) => {
+        console.error("WebSocket Fehler:", err);
+      };
+
+      ws.onclose = () => {
+        console.log("WebSocket getrennt");
+      };
+    }
+
+    /******************************************************************
+     * 5) MARKER ZEICHNEN
      ******************************************************************/
     function drawMarkers(markers) {
       for (const marker of markers) {
         const corners = marker.corners;
 
-        // Markerrahmen zeichnen
         ctx.strokeStyle = "#00ff00";
         ctx.lineWidth = 3;
         ctx.beginPath();
@@ -161,7 +140,7 @@
         ctx.closePath();
         ctx.stroke();
 
-        // Ecke 0 zur Orientierung markieren
+        // Ecke 0 markieren
         ctx.fillStyle = "#00ff00";
         ctx.beginPath();
         ctx.arc(corners[0].x, corners[0].y, 5, 0, Math.PI * 2);
@@ -175,9 +154,7 @@
     }
 
     /******************************************************************
-     * 5) POSE-TEXT ZEICHNEN
-     * ---------------------------------------------------------------
-     * Zeigt die berechneten Werte im Bild an.
+     * 6) POSE-TEXT ZEICHNEN
      ******************************************************************/
     function drawPoseText(translation) {
       ctx.fillStyle = "yellow";
@@ -189,14 +166,7 @@
     }
 
     /******************************************************************
-     * 6) HILFSFUNKTION: MARKER-ECKEN FÜR POSIT UMWANDELN
-     * ---------------------------------------------------------------
-     * Der POSIT-Algorithmus erwartet Koordinaten relativ
-     * zum Bildzentrum.
-     *
-     * Deshalb:
-     * - x wird um die halbe Bildbreite verschoben
-     * - y wird invertiert und um die halbe Bildhöhe verschoben
+     * 7) ECKEN FÜR POSIT KONVERTIEREN
      ******************************************************************/
     function convertCornersForPosit(corners) {
       return corners.map(corner => ({
@@ -206,20 +176,15 @@
     }
 
     /******************************************************************
-     * 7) POSE FÜR ERSTEN MARKER BERECHNEN
-     * ---------------------------------------------------------------
-     * Wir nehmen erstmal nur den ersten erkannten Marker,
-     * damit die Logik einfach und stabil bleibt.
+     * 8) POSE AUS ERSTEM MARKER BERECHNEN
      ******************************************************************/
     function estimatePoseFromFirstMarker(markers) {
-      if (!markers || markers.length === 0) {
+      if (!markers || markers.length === 0 || !posit) {
         return null;
       }
 
       const marker = markers[0];
       const positCorners = convertCornersForPosit(marker.corners);
-
-      // Pose berechnen
       const pose = posit.pose(positCorners);
 
       if (!pose || !pose.bestTranslation) {
@@ -234,18 +199,49 @@
     }
 
     /******************************************************************
-     * 8) RENDER-SCHLEIFE
+     * 9) WERTE AN DEN SERVER SENDEN
      * ---------------------------------------------------------------
-     * Pro Frame:
-     * - echtes Videobild ins Canvas zeichnen
-     * - Marker erkennen
-     * - Marker darstellen
-     * - Pose berechnen
-     * - Pose-Werte anzeigen
+     * Wir senden erstmal:
+     * - x
+     * - y
+     * - z
+     *
+     * yaw / pitch / roll bleiben vorerst 0.
+     *
+     * Zusätzlich drehen wir das Vorzeichen / die Achsen etwas um,
+     * damit es im Viewer natürlicher wirkt.
+     ******************************************************************/
+    function sendPoseToViewer(translation) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        return;
+      }
+
+      // translation[0] = seitlich
+      // translation[1] = vertikal
+      // translation[2] = Abstand
+
+      const posePayload = {
+        // Etwas skaliert und angepasst für den Viewer-Raum
+        x: translation[0] / 100,
+        y: 1.2 - translation[1] / 100,
+        z: Math.max(0.2, translation[2] / 100),
+        yaw: 0,
+        pitch: 0,
+        roll: 0
+      };
+
+      ws.send(JSON.stringify({
+        type: "pose",
+        data: posePayload
+      }));
+    }
+
+    /******************************************************************
+     * 10) RENDER-SCHLEIFE
      ******************************************************************/
     function renderFrame() {
       if (video.readyState >= 2) {
-        // Canvas an echte Videoauflösung anpassen
+        // Canvas an Videogröße anpassen
         if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
           canvas.width = video.videoWidth;
           canvas.height = video.videoHeight;
@@ -254,27 +250,27 @@
           posit = new POS.Posit(MARKER_SIZE, canvas.width);
         }
 
-        // 1) Kamerabild ins Canvas zeichnen
+        // Kamerabild zeichnen
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-        // 2) Bilddaten holen
+        // Bilddaten holen
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-        // 3) Marker erkennen
+        // Marker erkennen
         const markers = detector.detect(imageData);
 
-        // 4) Markerrahmen + IDs zeichnen
+        // Marker zeichnen
         drawMarkers(markers);
 
-        // 5) Pose berechnen
+        // Pose berechnen
         const poseResult = estimatePoseFromFirstMarker(markers);
 
-        // 6) Pose anzeigen, falls vorhanden
         if (poseResult) {
           drawPoseText(poseResult.translation);
+          sendPoseToViewer(poseResult.translation);
 
           statusEl.textContent =
-            `Status: Kamera läuft – ${markers.length} Marker erkannt – Pose aktiv`;
+            `Status: Kamera läuft – ${markers.length} Marker erkannt – Pose wird gesendet`;
         } else {
           statusEl.textContent =
             `Status: Kamera läuft – ${markers.length} Marker erkannt`;
@@ -285,13 +281,16 @@
     }
 
     /******************************************************************
-     * 9) KAMERA STARTEN
-     * ---------------------------------------------------------------
-     * Nutzt bevorzugt die Rückkamera des iPhones.
+     * 11) KAMERA STARTEN
      ******************************************************************/
     async function startCamera() {
       try {
         statusEl.textContent = "Status: Kamera wird gestartet...";
+
+        // WebSocket aufbauen
+        if (!ws || ws.readyState > 1) {
+          connectSocket();
+        }
 
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
@@ -315,7 +314,7 @@
     }
 
     /******************************************************************
-     * 10) KAMERA STOPPEN
+     * 12) KAMERA STOPPEN
      ******************************************************************/
     function stopCamera() {
       if (animationId) {
@@ -335,7 +334,7 @@
     }
 
     /******************************************************************
-     * 11) BUTTONS
+     * 13) BUTTONS
      ******************************************************************/
     startCameraBtn.addEventListener("click", startCamera);
     stopCameraBtn.addEventListener("click", stopCamera);
