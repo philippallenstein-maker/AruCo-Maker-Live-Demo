@@ -5,6 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AruCo 3D Viewer</title>
   <link rel="stylesheet" href="style.css" />
+
+  <!--
+    Import Map:
+    Damit kann der Browser "three" und "three/addons/..." korrekt auflösen.
+    Genau das behebt den Fehler:
+    Failed to resolve module specifier "three"
+  -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
   <style>
     #scene3d {
       width: 950px;
@@ -77,12 +93,19 @@
   </div>
 
   <script type="module">
-    // THREE.js importieren
-   import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js";
+    /*
+      Hier importieren wir jetzt so, wie Three.js es für Addons vorsieht:
+      - three
+      - three/addons/controls/OrbitControls.js
+
+      Das funktioniert mit der Import Map oben.
+    */
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
     // HIER DEINE ECHTE WSS-ADRESSE EINTRAGEN
     const WS_URL = "wss://scaling-chainsaw-x5g5r9gj575pfppwq-8080.app.github.dev/";
+
     // HTML-Elemente holen
     const xEl = document.getElementById("x");
     const yEl = document.getElementById("y");
@@ -94,7 +117,7 @@ import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.160.0/exampl
     const resetViewBtn = document.getElementById("resetViewBtn");
     const sceneContainer = document.getElementById("scene3d");
 
-    // Aktuelle Pose
+    // Letzte empfangene Pose
     let pose = {
       x: 1.0,
       y: 1.2,
@@ -108,7 +131,7 @@ import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.160.0/exampl
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf5f5f5);
 
-    // Kamera für die Darstellung
+    // Darstellungskamera
     const camera = new THREE.PerspectiveCamera(
       50,
       sceneContainer.clientWidth / sceneContainer.clientHeight,
@@ -146,14 +169,14 @@ import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.160.0/exampl
     directionalLight.position.set(4, 5, 3);
     scene.add(directionalLight);
 
-    // Raumdefinition
+    // Raum
     const room = {
       width: 2.0,
       height: 2.4,
       depth: 2.5
     };
 
-    // Raum als Drahtbox
+    // Drahtbox
     const roomGeometry = new THREE.BoxGeometry(room.width, room.height, room.depth);
     const roomEdges = new THREE.EdgesGeometry(roomGeometry);
     const roomLine = new THREE.LineSegments(
@@ -193,7 +216,7 @@ import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.160.0/exampl
       { id: 3, x: 1.4, y: 0.9, z: 0.01 }
     ];
 
-    function createMarker(label) {
+    function createMarker() {
       const group = new THREE.Group();
 
       const outer = new THREE.Mesh(
@@ -213,7 +236,7 @@ import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.160.0/exampl
     }
 
     markers.forEach((m) => {
-      const marker = createMarker(`ID ${m.id}`);
+      const marker = createMarker();
       marker.position.set(m.x, m.y, m.z);
       scene.add(marker);
     });
@@ -244,7 +267,7 @@ import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.160.0/exampl
 
     scene.add(phoneGroup);
 
-    // Distanzlinie zur Wand
+    // Distanzlinie
     let distanceLine = null;
 
     function updateDistanceLine() {
@@ -276,7 +299,6 @@ import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.160.0/exampl
 
     updatePhonePose();
 
-    // Render-Schleife
     function animate() {
       requestAnimationFrame(animate);
       controls.update();
@@ -285,7 +307,6 @@ import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.160.0/exampl
 
     animate();
 
-    // Resize
     window.addEventListener("resize", () => {
       const width = sceneContainer.clientWidth;
       const height = sceneContainer.clientHeight;
@@ -294,7 +315,7 @@ import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.160.0/exampl
       renderer.setSize(width, height);
     });
 
-    // WebSocket-Verbindung
+    // WebSocket
     const ws = new WebSocket(WS_URL);
 
     ws.onopen = () => {
