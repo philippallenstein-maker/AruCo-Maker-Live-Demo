@@ -6,7 +6,6 @@
   <title>AruCo Phone</title>
   <link rel="stylesheet" href="style.css" />
   <style>
-    /* Zusätzliche Styles nur für diese Seite */
     .video-wrapper {
       margin-top: 20px;
       display: flex;
@@ -14,12 +13,17 @@
       gap: 12px;
     }
 
-    video, canvas {
+    canvas {
       width: 100%;
       max-width: 520px;
       border-radius: 12px;
       border: 1px solid #ccc;
       background: black;
+    }
+
+    /* Video bleibt technisch da, wird aber nicht angezeigt */
+    video {
+      display: none;
     }
 
     .button-row {
@@ -40,8 +44,8 @@
 
   <div class="panel">
     <p>
-      Diese Seite läuft später auf dem iPhone.  
-      In diesem Schritt öffnen wir zuerst nur die Kamera.
+      In diesem Schritt erkennen wir Marker im Kamerabild
+      und zeichnen ihre IDs direkt ins Bild.
     </p>
 
     <div class="button-row">
@@ -51,31 +55,28 @@
 
     <p id="status">Status: bereit</p>
     <p class="small">
-      Ziel dieses Schritts: Das Live-Kamerabild soll sichtbar sein.
+      Ziel dieses Schritts: Marker erkennen und ihre IDs im Bild anzeigen.
     </p>
 
     <div class="video-wrapper">
-      <!--
-        video:
-        Hier zeigt der Browser den Live-Kamerastream an.
-      -->
       <video id="video" autoplay playsinline muted></video>
-
-      <!--
-        canvas:
-        Dieses Canvas brauchen wir später für Bildauswertung,
-        Marker-Erkennung und Overlays.
-        Im Moment zeichnen wir nur testweise das Videobild hinein.
-      -->
       <canvas id="canvas" width="640" height="480"></canvas>
     </div>
   </div>
 
+  <!--
+    js-aruco2 Dateien direkt per CDN laden.
+    Wir laden die einzelnen Quelldateien in der Reihenfolge,
+    die die Library typischerweise braucht.
+  -->
+  <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/posit1.js"></script>
+
   <script>
     /******************************************************************
      * 1) HTML-ELEMENTE HOLEN
-     * ---------------------------------------------------------------
-     * Wir holen uns die Buttons, den Status, das Video und das Canvas.
      ******************************************************************/
     const startCameraBtn = document.getElementById("startCameraBtn");
     const stopCameraBtn = document.getElementById("stopCameraBtn");
@@ -85,40 +86,90 @@
     const ctx = canvas.getContext("2d");
 
     /******************************************************************
-     * 2) STREAM-VARIABLE
+     * 2) STREAM UND DETECTOR
      * ---------------------------------------------------------------
-     * Hier speichern wir später den laufenden Kamerastream,
-     * damit wir ihn auch wieder sauber stoppen können.
+     * stream   = laufender Kamerastream
+     * detector = ArUco-Detektor
+     *
+     * Wir nehmen hier bewusst das Dictionary "ARUCO",
+     * weil das die schnelle Browser-Variante ist.
      ******************************************************************/
     let stream = null;
+    let animationId = null;
+
+    const detector = new AR.Detector({
+      dictionaryName: "ARUCO"
+    });
 
     /******************************************************************
-     * 3) ZEICHEN-SCHLEIFE
+     * 3) MARKER ZEICHNEN
      * ---------------------------------------------------------------
-     * Diese Funktion kopiert jedes Frame vom Video ins Canvas.
-     *
-     * Warum machen wir das?
-     * - Später lesen wir genau aus diesem Canvas die Marker aus
-     * - wir haben dann direkten Zugriff auf die Bilddaten
+     * Diese Funktion zeichnet:
+     * - den Marker-Rahmen
+     * - die ID
      ******************************************************************/
-    function drawVideoToCanvas() {
-      // Nur zeichnen, wenn das Video wirklich Daten hat
-      if (video.readyState >= 2) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      }
+    function drawMarkers(markers) {
+      for (const marker of markers) {
+        const corners = marker.corners;
 
-      // Nächstes Frame wieder anfordern
-      requestAnimationFrame(drawVideoToCanvas);
+        // Rahmen zeichnen
+        ctx.strokeStyle = "#00ff00";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(corners[0].x, corners[0].y);
+
+        for (let i = 1; i < corners.length; i++) {
+          ctx.lineTo(corners[i].x, corners[i].y);
+        }
+
+        ctx.closePath();
+        ctx.stroke();
+
+        // Marker-ID oberhalb der ersten Ecke anzeigen
+        ctx.fillStyle = "#ff0000";
+        ctx.font = "20px Arial";
+        ctx.fillText("ID: " + marker.id, corners[0].x, corners[0].y - 10);
+      }
     }
 
     /******************************************************************
-     * 4) KAMERA STARTEN
+     * 4) RENDER-SCHLEIFE
      * ---------------------------------------------------------------
-     * Hier fragen wir den Browser nach Kamerazugriff.
-     *
-     * Wichtige Punkte:
-     * - video: true = wir wollen die Kamera
-     * - facingMode: "environment" = bevorzugt Rückkamera am iPhone
+     * Pro Frame:
+     * - Videobild ins Canvas zeichnen
+     * - Bilddaten lesen
+     * - Marker erkennen
+     * - Marker ins Bild einzeichnen
+     ******************************************************************/
+    function renderFrame() {
+      if (video.readyState >= 2) {
+        // Canvas an echte Videoauflösung anpassen
+        if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+        }
+
+        // Video ins Canvas zeichnen
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // Bilddaten holen
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+        // Marker erkennen
+        const markers = detector.detect(imageData);
+
+        // Marker ins Bild malen
+        drawMarkers(markers);
+
+        // Status anzeigen
+        statusEl.textContent = `Status: Kamera läuft – ${markers.length} Marker erkannt`;
+      }
+
+      animationId = requestAnimationFrame(renderFrame);
+    }
+
+    /******************************************************************
+     * 5) KAMERA STARTEN
      ******************************************************************/
     async function startCamera() {
       try {
@@ -126,23 +177,18 @@
 
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            facingMode: { ideal: "environment" }, // Rückkamera bevorzugen
+            facingMode: { ideal: "environment" },
             width: { ideal: 1280 },
             height: { ideal: 720 }
           },
           audio: false
         });
 
-        // Stream in das Video-Element einhängen
         video.srcObject = stream;
-
-        // Warten, bis Metadaten geladen sind
         await video.play();
 
         statusEl.textContent = "Status: Kamera läuft";
-
-        // Zeichen-Schleife starten
-        drawVideoToCanvas();
+        renderFrame();
 
       } catch (error) {
         console.error("Fehler beim Starten der Kamera:", error);
@@ -151,28 +197,28 @@
     }
 
     /******************************************************************
-     * 5) KAMERA STOPPEN
-     * ---------------------------------------------------------------
-     * Wir stoppen alle Tracks des Streams.
+     * 6) KAMERA STOPPEN
      ******************************************************************/
     function stopCamera() {
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+      }
+
       if (stream) {
         const tracks = stream.getTracks();
         tracks.forEach(track => track.stop());
         stream = null;
       }
 
-      // Video zurücksetzen
       video.srcObject = null;
-
-      // Canvas leeren
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       statusEl.textContent = "Status: Kamera gestoppt";
     }
 
     /******************************************************************
-     * 6) BUTTON-EVENTS
+     * 7) BUTTONS
      ******************************************************************/
     startCameraBtn.addEventListener("click", startCamera);
     stopCameraBtn.addEventListener("click", stopCamera);
