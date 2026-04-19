@@ -24,11 +24,15 @@ wss.on("connection", (ws) => {
     try {
       const parsed = JSON.parse(message.toString());
 
+      console.log("Nachricht empfangen:", parsed.type, parsed.data);
+
       if (parsed.type === "pose") {
         latestPose = {
           ...parsed.data,
           ts: Date.now()
         };
+
+        console.log("Sende Pose an alle Clients:", latestPose);
 
         for (const client of wss.clients) {
           if (client.readyState === 1) {
