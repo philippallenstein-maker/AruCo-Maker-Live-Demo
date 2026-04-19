@@ -6,7 +6,6 @@
   <title>AruCo 3D Viewer</title>
   <link rel="stylesheet" href="style.css" />
   <style>
-    /* Zusätzliche Styles nur für diese Seite */
     #scene3d {
       width: 950px;
       height: 620px;
@@ -51,15 +50,15 @@
         <p>Pitch: <span id="pitch">0.00</span> rad</p>
         <p>Roll: <span id="roll">0.00</span> rad</p>
         <p>Status: <span id="status">verbinde...</span></p>
-        <button id="resetViewBtn">Ansicht zurücksetzen</button>
       </div>
+
+      <button id="resetViewBtn">Ansicht zurücksetzen</button>
 
       <hr />
 
       <p><strong>Interpretation</strong></p>
       <p>
-        Die transparente Box ist der Raum.
-        Die helle Wand hinten ist die Marker-Wand.
+        Die transparente Box ist der Raum. Die helle Wand hinten ist die Marker-Wand.
         Die schwarzen Felder sind die 4 festen ArUco-Marker.
         Das blaue Objekt ist das iPhone / die Kamera.
       </p>
@@ -78,25 +77,13 @@
   </div>
 
   <script type="module">
-    /******************************************************************
-     * 1) THREE.JS IMPORT
-     * ---------------------------------------------------------------
-     * Wir nutzen eine Browser-3D-Bibliothek, damit dein Viewer
-     * wirklich räumlich aussieht.
-     ******************************************************************/
-    import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-    import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js";
+    // THREE.js importieren
+    import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+    import { OrbitControls } from "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js";
 
-    /******************************************************************
-     * 2) WEBSOCKET-URL
-     * ---------------------------------------------------------------
-     * Hier deine echte WSS-Adresse einsetzen.
-     ******************************************************************/
-     const WS_URL = "wss://scaling-chainsaw-x5g5r9gj575pfppwq-8080.app.github.dev/"; //Hier kommt dann immer die Aktuelle Adresse rein mit Wss anstatt https und den Port auf Public stellen damit alls funkt
-
-    /******************************************************************
-     * 3) HTML-ELEMENTE FÜR LIVE-WERTE
-     ******************************************************************/
+    // HIER DEINE ECHTE WSS-ADRESSE EINTRAGEN
+    const WS_URL = "wss://scaling-chainsaw-x5g5r9gj575pfppwq-8080.app.github.dev/";
+    // HTML-Elemente holen
     const xEl = document.getElementById("x");
     const yEl = document.getElementById("y");
     const zEl = document.getElementById("z");
@@ -104,15 +91,10 @@
     const pitchEl = document.getElementById("pitch");
     const rollEl = document.getElementById("roll");
     const statusEl = document.getElementById("status");
-
+    const resetViewBtn = document.getElementById("resetViewBtn");
     const sceneContainer = document.getElementById("scene3d");
 
-    /******************************************************************
-     * 4) AKTUELLE POSE
-     * ---------------------------------------------------------------
-     * Diese Werte kommen später vom iPhone.
-     * Aktuell kommen sie noch aus deinen Testdaten.
-     ******************************************************************/
+    // Aktuelle Pose
     let pose = {
       x: 1.0,
       y: 1.2,
@@ -122,93 +104,66 @@
       roll: 0
     };
 
-    /******************************************************************
-     * 5) GRUNDSZENE
-     ******************************************************************/
+    // Szene
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf5f5f5);
 
+    // Kamera für die Darstellung
     const camera = new THREE.PerspectiveCamera(
       50,
       sceneContainer.clientWidth / sceneContainer.clientHeight,
       0.1,
       100
     );
-
-    // Blick auf den Raum aus einer schrägen Perspektive
     camera.position.set(3.8, 2.6, 4.8);
     camera.lookAt(1.0, 1.0, 0.8);
 
+    // Renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(sceneContainer.clientWidth, sceneContainer.clientHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
     sceneContainer.appendChild(renderer.domElement);
 
-
-    /******************************************************************
-     * INTERAKTIVE KAMERASTEUERUNG MIT DER MAUS
-     * ---------------------------------------------------------------
-     * OrbitControls erlaubt:
-     * - drehen mit linker Maustaste
-     * - zoomen mit Mausrad
-     * - verschieben mit rechter Maustaste
-     ******************************************************************/
+    // Maussteuerung
     const controls = new OrbitControls(camera, renderer.domElement);
-
-    // Punkt, auf den die Ansicht schaut
     controls.target.set(1.0, 1.1, 0.8);
-
-    // Weiche Bewegung
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
-
-    // Optional: Winkel begrenzen, damit man nicht komplett "unter" den Raum fliegt
     controls.maxPolarAngle = Math.PI / 2.05;
     controls.minDistance = 2.2;
     controls.maxDistance = 9;
 
-    /******************************************************************
-     * 6) LICHT
-     ******************************************************************/
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
-    scene.add(ambientLight);
+    resetViewBtn.addEventListener("click", () => {
+      camera.position.set(3.8, 2.6, 4.8);
+      controls.target.set(1.0, 1.1, 0.8);
+      controls.update();
+    });
+
+    // Licht
+    scene.add(new THREE.AmbientLight(0xffffff, 0.85));
 
     const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
     directionalLight.position.set(4, 5, 3);
     scene.add(directionalLight);
 
-    /******************************************************************
-     * 7) RAUM-DEFINITION
-     * ---------------------------------------------------------------
-     * Beispielraum:
-     * Breite  = 2.0 m
-     * Höhe    = 2.4 m
-     * Tiefe   = 2.5 m
-     *
-     * Marker-Wand liegt bei z = 0
-     ******************************************************************/
+    // Raumdefinition
     const room = {
       width: 2.0,
       height: 2.4,
       depth: 2.5
     };
 
-    /******************************************************************
-     * 8) RAUM ALS TRANSPARENTE BOX
-     ******************************************************************/
+    // Raum als Drahtbox
     const roomGeometry = new THREE.BoxGeometry(room.width, room.height, room.depth);
     const roomEdges = new THREE.EdgesGeometry(roomGeometry);
     const roomLine = new THREE.LineSegments(
       roomEdges,
       new THREE.LineBasicMaterial({ color: 0x444444 })
     );
-
-    // Box so platzieren, dass die Rückwand bei z = 0 liegt
     roomLine.position.set(room.width / 2, room.height / 2, room.depth / 2);
     scene.add(roomLine);
 
-    /******************************************************************
-     * 9) BODEN
-     ******************************************************************/
+    // Boden
     const floorGeometry = new THREE.PlaneGeometry(room.width, room.depth);
     const floorMaterial = new THREE.MeshStandardMaterial({
       color: 0x8b6b2e,
@@ -219,71 +174,40 @@
     floor.position.set(room.width / 2, 0, room.depth / 2);
     scene.add(floor);
 
-    /******************************************************************
-     * 10) MARKER-WAND
-     ******************************************************************/
+    // Rückwand
     const wallGeometry = new THREE.PlaneGeometry(room.width, room.height);
     const wallMaterial = new THREE.MeshStandardMaterial({
       color: 0xd9d9d9,
       side: THREE.DoubleSide
     });
     const wall = new THREE.Mesh(wallGeometry, wallMaterial);
-
-    // Wand steht senkrecht an z = 0
     wall.position.set(room.width / 2, room.height / 2, 0);
     scene.add(wall);
 
-    /******************************************************************
-     * 11) MARKER-POSITIONEN
-     * ---------------------------------------------------------------
-     * Die Marker hängen als Rechteck an der Wand.
-     * Mittlere Höhe rund um 1.20 m.
-     ******************************************************************/
-    const markerSize = 0.12; // 12 cm pro Marker
-
+    // Marker
+    const markerSize = 0.12;
     const markers = [
-      { id: 0, x: 0.6, y: 1.5, z: 0.01 }, // oben links
-      { id: 1, x: 1.4, y: 1.5, z: 0.01 }, // oben rechts
-      { id: 2, x: 0.6, y: 0.9, z: 0.01 }, // unten links
-      { id: 3, x: 1.4, y: 0.9, z: 0.01 }  // unten rechts
+      { id: 0, x: 0.6, y: 1.5, z: 0.01 },
+      { id: 1, x: 1.4, y: 1.5, z: 0.01 },
+      { id: 2, x: 0.6, y: 0.9, z: 0.01 },
+      { id: 3, x: 1.4, y: 0.9, z: 0.01 }
     ];
 
-    /******************************************************************
-     * 12) MARKER ZEICHNEN
-     ******************************************************************/
     function createMarker(label) {
       const group = new THREE.Group();
 
-      // schwarzer Marker-Rahmen
       const outer = new THREE.Mesh(
         new THREE.PlaneGeometry(markerSize, markerSize),
         new THREE.MeshStandardMaterial({ color: 0x111111, side: THREE.DoubleSide })
       );
       group.add(outer);
 
-      // weißes Innenfeld als einfache Symbolik
       const inner = new THREE.Mesh(
         new THREE.PlaneGeometry(markerSize * 0.45, markerSize * 0.45),
         new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide })
       );
       inner.position.z = 0.001;
       group.add(inner);
-
-      // kleines Label per Sprite-Canvas
-      const canvas = document.createElement("canvas");
-      canvas.width = 256;
-      canvas.height = 64;
-      const c = canvas.getContext("2d");
-      c.fillStyle = "black";
-      c.font = "28px Arial";
-      c.fillText(label, 10, 40);
-
-      const texture = new THREE.CanvasTexture(canvas);
-      const spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true });
-      const sprite = new THREE.Sprite(spriteMaterial);
-      sprite.scale.set(0.35, 0.09, 1);
-      sprite.position.set(0, 0.12, 0.01);
-      group.add(sprite);
 
       return group;
     }
@@ -294,31 +218,23 @@
       scene.add(marker);
     });
 
-    /******************************************************************
-     * 13) KOORDINATENACHSEN IM RAUM
-     * ---------------------------------------------------------------
-     * Hilft dir später beim Erklären.
-     ******************************************************************/
+    // Achsenhilfe
     const axesHelper = new THREE.AxesHelper(0.5);
     axesHelper.position.set(0.2, 0.2, 0.15);
     scene.add(axesHelper);
 
-    /******************************************************************
-     * 14) KAMERA-OBJEKT (dein iPhone im Raum)
-     ******************************************************************/
+    // Kameraobjekt
     const phoneGroup = new THREE.Group();
 
-    // Körper der Kamera / des iPhones
     const phoneBody = new THREE.Mesh(
       new THREE.BoxGeometry(0.12, 0.08, 0.05),
       new THREE.MeshStandardMaterial({ color: 0x1f6feb })
     );
     phoneGroup.add(phoneBody);
 
-    // Richtungspfeil
     const arrow = new THREE.ArrowHelper(
-      new THREE.Vector3(0, 0, -1),   // Anfangsrichtung
-      new THREE.Vector3(0, 0, 0),    // Startpunkt
+      new THREE.Vector3(0, 0, -1),
+      new THREE.Vector3(0, 0, 0),
       0.28,
       0x1f6feb,
       0.08,
@@ -328,11 +244,7 @@
 
     scene.add(phoneGroup);
 
-    /******************************************************************
-     * 15) HILFSLINIE ZUR WAND
-     * ---------------------------------------------------------------
-     * Damit man den Abstand zur Wand besser erkennt.
-     ******************************************************************/
+    // Distanzlinie zur Wand
     let distanceLine = null;
 
     function updateDistanceLine() {
@@ -353,66 +265,44 @@
       scene.add(distanceLine);
     }
 
-    /******************************************************************
-     * 16) POSE AUF DAS KAMERA-OBJEKT ÜBERTRAGEN
-     * ---------------------------------------------------------------
-     * Wir setzen Position und grobe Rotation.
-     *
-     * Hinweis:
-     * Die Yaw-Drehung ist für die Demo am wichtigsten.
-     * Pitch und Roll tragen wir auch ein, damit du sie später
-     * theoretisch mit echten Daten nutzen kannst.
-     ******************************************************************/
     function updatePhonePose() {
       phoneGroup.position.set(pose.x, pose.y, pose.z);
-
-      // Rotation setzen
       phoneGroup.rotation.order = "YXZ";
       phoneGroup.rotation.y = pose.yaw;
       phoneGroup.rotation.x = pose.pitch;
       phoneGroup.rotation.z = pose.roll;
-
       updateDistanceLine();
     }
 
     updatePhonePose();
 
-    /******************************************************************
-     * 17) SZENE ANIMIEREN
-     ******************************************************************/
+    // Render-Schleife
     function animate() {
-    requestAnimationFrame(animate);
-
-    // OrbitControls aktualisieren
-    controls.update();
-
-    renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
     }
 
     animate();
 
-    /******************************************************************
-     * 18) RESIZE-HANDLING
-     ******************************************************************/
+    // Resize
     window.addEventListener("resize", () => {
       const width = sceneContainer.clientWidth;
       const height = sceneContainer.clientHeight;
-
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
       renderer.setSize(width, height);
     });
 
-    /******************************************************************
-     * 19) WEBSOCKET-VERBINDUNG
-     ******************************************************************/
+    // WebSocket-Verbindung
     const ws = new WebSocket(WS_URL);
 
     ws.onopen = () => {
       statusEl.textContent = "verbunden";
     };
 
-    ws.onerror = () => {
+    ws.onerror = (err) => {
+      console.error("WebSocket Fehler:", err);
       statusEl.textContent = "Fehler";
     };
 
@@ -426,7 +316,6 @@
       if (msg.type === "pose") {
         pose = msg.data;
 
-        // Live-Werte in HTML schreiben
         xEl.textContent = pose.x.toFixed(2);
         yEl.textContent = pose.y.toFixed(2);
         zEl.textContent = pose.z.toFixed(2);
@@ -434,18 +323,9 @@
         pitchEl.textContent = pose.pitch.toFixed(2);
         rollEl.textContent = pose.roll.toFixed(2);
 
-        // 3D-Kameraobjekt aktualisieren
         updatePhonePose();
       }
     };
-
-    const resetViewBtn = document.getElementById("resetViewBtn");
-
-    resetViewBtn.addEventListener("click", () => {
-    camera.position.set(3.8, 2.6, 4.8);
-    controls.target.set(1.0, 1.0, 0.8);
-    controls.update();
-    });
   </script>
 </body>
 </html>
