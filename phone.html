@@ -79,34 +79,32 @@
      const WS_URL = "wss://scaling-chainsaw-x5g5r9gj575pfppwq-8080.app.github.dev/";
 
     // Nur Z aus POSIT verwenden, in Meter umgerechnet
-    const TRANSLATION_TO_METERS = 0.01;
+    const TRANSLATION_TO_METERS = 0.13;
 
     // Achsenlänge für Overlay
     const AXIS_LENGTH_METERS = 0.06;
 
     // Glättung für ruhige Bewegung
-    const SMOOTHING = 0.85;
+    const SMOOTHING = 0.65;
 
     // Wie stark Bildoffset die Raumbewegung beeinflusst
-    const OFFSET_GAIN_X = 0.9;
-    const OFFSET_GAIN_Y = 0.9;
+    const OFFSET_GAIN_X = 1.6;
+    const OFFSET_GAIN_Y = 1.4;
 
     // Begrenzung der nutzbaren Distanz
-    const MIN_DISTANCE = 0.35;
-    const MAX_DISTANCE = 2.20;
-
+    const MIN_DISTANCE = 0.30;
+    const MAX_DISTANCE = 3.00;
     const VALID_IDS = new Set([0, 1, 2, 3]);
 
     /******************************************************************
      * 2) FESTE WELTPOSITIONEN DER MARKERMITTELPUNKTE
      ******************************************************************/
     const WORLD_MARKERS = {
-      0: { x: 0.0,              y: MARKER_SPACING_Y, z: 0.0 }, // oben links
-      1: { x: MARKER_SPACING_X, y: MARKER_SPACING_Y, z: 0.0 }, // oben rechts
-      2: { x: 0.0,              y: 0.0,              z: 0.0 }, // unten links
-      3: { x: MARKER_SPACING_X, y: 0.0,              z: 0.0 }  // unten rechts
-    };
-
+  0: { x: 0.6, y: 1.5, z: 0.0 }, // oben links
+  1: { x: 1.4, y: 1.5, z: 0.0 }, // oben rechts
+  2: { x: 0.6, y: 0.9, z: 0.0 }, // unten links
+  3: { x: 1.4, y: 0.9, z: 0.0 }  // unten rechts
+};
     /******************************************************************
      * 3) HTML-ELEMENTE
      ******************************************************************/
