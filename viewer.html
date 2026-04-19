@@ -18,6 +18,7 @@
       <p>Yaw: <span id="yaw">0.00</span></p>
       <p>Pitch: <span id="pitch">0.00</span></p>
       <p>Roll: <span id="roll">0.00</span></p>
+      <p>Status: <span id="status">verbinde...</span></p>
     </div>
 
     <div class="panel">
@@ -27,21 +28,53 @@
   </div>
 
   <script>
+    const WS_URL = "wss://scaling-chainsaw-x5g5r9gj575pfppwq-8080.app.github.dev/"; //Hier kommt dann immer die Aktuelle Adresse rein mit Wss anstatt https und den Port auf Public stellen damit alls funkt
+
+    const xEl = document.getElementById("x");
+    const yEl = document.getElementById("y");
+    const zEl = document.getElementById("z");
+    const yawEl = document.getElementById("yaw");
+    const pitchEl = document.getElementById("pitch");
+    const rollEl = document.getElementById("roll");
+    const statusEl = document.getElementById("status");
+
     const canvas = document.getElementById("map");
     const ctx = canvas.getContext("2d");
+
+    let pose = {
+      x: 0,
+      y: 0,
+      z: 0,
+      yaw: 0,
+      pitch: 0,
+      roll: 0
+    };
 
     function drawScene() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Wand / Markerboard
-      ctx.fillStyle = "#999";
-      ctx.fillRect(60, 120, 30, 100);
+      // Wand / Board links
+      ctx.fillStyle = "#777";
+      ctx.fillRect(60, 120, 25, 100);
       ctx.fillStyle = "#222";
-      ctx.fillText("Board", 50, 115);
+      ctx.font = "16px Arial";
+      ctx.fillText("Board", 45, 110);
 
-      // Kamera Beispielposition
-      const camX = 250;
-      const camY = 180;
+      // Koordinatensystem grob
+      ctx.strokeStyle = "#ddd";
+      ctx.beginPath();
+      ctx.moveTo(100, 175);
+      ctx.lineTo(560, 175);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(100, 40);
+      ctx.lineTo(100, 310);
+      ctx.stroke();
+
+      // Kamera-Position
+      const camX = 180 + pose.x * 80;
+      const camY = 175 + pose.z * 80;
 
       ctx.beginPath();
       ctx.arc(camX, camY, 10, 0, Math.PI * 2);
@@ -49,15 +82,50 @@
       ctx.fill();
 
       // Blickrichtung
+      const len = 35;
       ctx.beginPath();
       ctx.moveTo(camX, camY);
-      ctx.lineTo(camX + 40, camY);
+      ctx.lineTo(
+        camX + Math.cos(pose.yaw) * len,
+        camY + Math.sin(pose.yaw) * len
+      );
       ctx.strokeStyle = "#1f6feb";
       ctx.lineWidth = 3;
       ctx.stroke();
+
+      requestAnimationFrame(drawScene);
     }
 
     drawScene();
+
+    const ws = new WebSocket(WS_URL);
+
+    ws.onopen = () => {
+      statusEl.textContent = "verbunden";
+    };
+
+    ws.onerror = () => {
+      statusEl.textContent = "Fehler";
+    };
+
+    ws.onclose = () => {
+      statusEl.textContent = "getrennt";
+    };
+
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+
+      if (msg.type === "pose") {
+        pose = msg.data;
+
+        xEl.textContent = pose.x.toFixed(2);
+        yEl.textContent = pose.y.toFixed(2);
+        zEl.textContent = pose.z.toFixed(2);
+        yawEl.textContent = pose.yaw.toFixed(2);
+        pitchEl.textContent = pose.pitch.toFixed(2);
+        rollEl.textContent = pose.roll.toFixed(2);
+      }
+    };
   </script>
 </body>
 </html>

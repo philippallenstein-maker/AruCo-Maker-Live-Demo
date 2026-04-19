@@ -10,18 +10,69 @@
   <h1>iPhone Sender</h1>
 
   <div class="panel">
-    <p>Diese Seite läuft später auf dem iPhone.</p>
-    <p>Im nächsten Schritt sendet sie Testdaten und danach echte Pose-Daten.</p>
+    <p>Diese Seite sendet Test-Positionsdaten an den Viewer.</p>
     <button id="startBtn">Test starten</button>
     <p id="status">Status: bereit</p>
   </div>
 
   <script>
+    const WS_URL = "wss://scaling-chainsaw-x5g5r9gj575pfppwq-8080.app.github.dev/"; //Hier kommt dann immer die Aktuelle Adresse rein mit Wss anstatt https und den Port auf Public stellen damit alls funkt
     const startBtn = document.getElementById("startBtn");
     const status = document.getElementById("status");
 
+    let intervalId = null;
+    let t = 0;
+    let ws = null;
+
+    function connectSocket() {
+      ws = new WebSocket(WS_URL);
+
+      ws.onopen = () => {
+        status.textContent = "Status: verbunden";
+      };
+
+      ws.onerror = () => {
+        status.textContent = "Status: Fehler bei Verbindung";
+      };
+
+      ws.onclose = () => {
+        status.textContent = "Status: Verbindung getrennt";
+      };
+    }
+
+    connectSocket();
+
     startBtn.addEventListener("click", () => {
-      status.textContent = "Status: Test läuft (noch ohne Server)";
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+        startBtn.textContent = "Test starten";
+        status.textContent = "Status: Test gestoppt";
+        return;
+      }
+
+      startBtn.textContent = "Test stoppen";
+      status.textContent = "Status: Test läuft";
+
+      intervalId = setInterval(() => {
+        t += 0.08;
+
+        const pose = {
+          x: Math.cos(t) * 1.5,
+          y: 0.0,
+          z: Math.sin(t) * 1.0,
+          yaw: t,
+          pitch: 0.0,
+          roll: 0.0
+        };
+
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: "pose",
+            data: pose
+          }));
+        }
+      }, 100);
     });
   </script>
 </body>
