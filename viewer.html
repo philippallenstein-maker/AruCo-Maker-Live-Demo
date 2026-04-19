@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AruCo Viewer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>Laptop / Beamer Viewer</h1>
+
+  <div class="layout">
+    <div class="panel">
+      <h2>Live-Werte</h2>
+      <p>X: <span id="x">0.00</span></p>
+      <p>Y: <span id="y">0.00</span></p>
+      <p>Z: <span id="z">0.00</span></p>
+      <p>Yaw: <span id="yaw">0.00</span></p>
+      <p>Pitch: <span id="pitch">0.00</span></p>
+      <p>Roll: <span id="roll">0.00</span></p>
+    </div>
+
+    <div class="panel">
+      <h2>Top-Down Ansicht</h2>
+      <canvas id="map" width="600" height="350"></canvas>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("map");
+    const ctx = canvas.getContext("2d");
+
+    function drawScene() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Wand / Markerboard
+      ctx.fillStyle = "#999";
+      ctx.fillRect(60, 120, 30, 100);
+      ctx.fillStyle = "#222";
+      ctx.fillText("Board", 50, 115);
+
+      // Kamera Beispielposition
+      const camX = 250;
+      const camY = 180;
+
+      ctx.beginPath();
+      ctx.arc(camX, camY, 10, 0, Math.PI * 2);
+      ctx.fillStyle = "#1f6feb";
+      ctx.fill();
+
+      // Blickrichtung
+      ctx.beginPath();
+      ctx.moveTo(camX, camY);
+      ctx.lineTo(camX + 40, camY);
+      ctx.strokeStyle = "#1f6feb";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+
+    drawScene();
+  </script>
+</body>
+</html>

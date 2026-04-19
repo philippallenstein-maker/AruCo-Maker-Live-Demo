@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AruCo Phone</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>iPhone Sender</h1>
+
+  <div class="panel">
+    <p>Diese Seite läuft später auf dem iPhone.</p>
+    <p>Im nächsten Schritt sendet sie Testdaten und danach echte Pose-Daten.</p>
+    <button id="startBtn">Test starten</button>
+    <p id="status">Status: bereit</p>
+  </div>
+
+  <script>
+    const startBtn = document.getElementById("startBtn");
+    const status = document.getElementById("status");
+
+    startBtn.addEventListener("click", () => {
+      status.textContent = "Status: Test läuft (noch ohne Server)";
+    });
+  </script>
+</body>
+</html>
