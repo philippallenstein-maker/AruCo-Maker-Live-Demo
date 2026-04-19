@@ -6,24 +6,12 @@
   <title>AruCo Phone</title>
   <link rel="stylesheet" href="style.css" />
   <style>
+    /* Zusatz-Styles nur für diese Seite */
     .video-wrapper {
       margin-top: 20px;
       display: flex;
       flex-direction: column;
       gap: 12px;
-    }
-
-    canvas {
-      width: 100%;
-      max-width: 520px;
-      border-radius: 12px;
-      border: 1px solid #ccc;
-      background: black;
-    }
-
-    /* Video bleibt technisch da, wird aber nicht angezeigt */
-    video {
-      display: none;
     }
 
     .button-row {
@@ -37,6 +25,21 @@
       font-size: 14px;
       color: #555;
     }
+
+    /* Nur das Canvas soll sichtbar sein */
+    canvas {
+      width: 100%;
+      max-width: 520px;
+      border-radius: 12px;
+      border: 1px solid #ccc;
+      background: black;
+      display: block;
+    }
+
+    /* Video bleibt technisch im Hintergrund, wird aber nicht gezeigt */
+    video {
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -44,8 +47,8 @@
 
   <div class="panel">
     <p>
-      In diesem Schritt erkennen wir Marker im Kamerabild
-      und zeichnen ihre IDs direkt ins Bild.
+      Diese Seite nutzt die Kamera, erkennt ArUco-Marker und berechnet
+      daraus die Pose eines Markers relativ zur Kamera.
     </p>
 
     <div class="button-row">
@@ -55,19 +58,33 @@
 
     <p id="status">Status: bereit</p>
     <p class="small">
-      Ziel dieses Schritts: Marker erkennen und ihre IDs im Bild anzeigen.
+      In diesem Schritt wird noch nichts an den Viewer gesendet.
+      Wir prüfen zuerst lokal, ob Marker-Erkennung und Pose stimmen.
     </p>
 
     <div class="video-wrapper">
+      <!--
+        Das Video-Element bekommt den echten Kamerastream.
+        Es bleibt unsichtbar und dient nur als Quelle.
+      -->
       <video id="video" autoplay playsinline muted></video>
+
+      <!--
+        Das Canvas ist die einzige sichtbare Ausgabe.
+        Darin zeichnen wir:
+        - Kamerabild
+        - Markerrahmen
+        - ID
+        - Pose-Werte
+      -->
       <canvas id="canvas" width="640" height="480"></canvas>
     </div>
   </div>
 
   <!--
-    js-aruco2 Dateien direkt per CDN laden.
-    Wir laden die einzelnen Quelldateien in der Reihenfolge,
-    die die Library typischerweise braucht.
+    js-aruco2:
+    Diese Library übernimmt die Marker-Erkennung.
+    Wir laden die nötigen Dateien direkt per CDN.
   -->
   <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
@@ -76,7 +93,19 @@
 
   <script>
     /******************************************************************
-     * 1) HTML-ELEMENTE HOLEN
+     * 1) EINSTELLBARE PARAMETER
+     * ---------------------------------------------------------------
+     * MARKER_SIZE:
+     * Reale Markergröße in Metern.
+     * 0.10 = 10 cm
+     *
+     * Wenn dein Ausdruck später nicht exakt 10 cm ist,
+     * musst du NUR diesen Wert anpassen.
+     ******************************************************************/
+    const MARKER_SIZE = 0.10; // 10 cm
+
+    /******************************************************************
+     * 2) HTML-ELEMENTE HOLEN
      ******************************************************************/
     const startCameraBtn = document.getElementById("startCameraBtn");
     const stopCameraBtn = document.getElementById("stopCameraBtn");
@@ -86,33 +115,40 @@
     const ctx = canvas.getContext("2d");
 
     /******************************************************************
-     * 2) STREAM UND DETECTOR
+     * 3) GLOBALE VARIABLEN
      * ---------------------------------------------------------------
-     * stream   = laufender Kamerastream
-     * detector = ArUco-Detektor
+     * stream:
+     *   Kamerastream vom Handy
      *
-     * Wir nehmen hier bewusst das Dictionary "ARUCO",
-     * weil das die schnelle Browser-Variante ist.
+     * animationId:
+     *   ID der laufenden Render-Schleife
+     *
+     * detector:
+     *   ArUco-Detektor
+     *
+     * posit:
+     *   Pose-Algorithmus, wird später initialisiert,
+     *   sobald die Canvas-Breite bekannt ist
      ******************************************************************/
     let stream = null;
     let animationId = null;
+    let posit = null;
 
     const detector = new AR.Detector({
       dictionaryName: "ARUCO"
     });
 
     /******************************************************************
-     * 3) MARKER ZEICHNEN
+     * 4) MARKER ZEICHNEN
      * ---------------------------------------------------------------
-     * Diese Funktion zeichnet:
-     * - den Marker-Rahmen
-     * - die ID
+     * Zeichnet den grünen Rahmen um erkannte Marker
+     * und schreibt die ID dazu.
      ******************************************************************/
     function drawMarkers(markers) {
       for (const marker of markers) {
         const corners = marker.corners;
 
-        // Rahmen zeichnen
+        // Markerrahmen zeichnen
         ctx.strokeStyle = "#00ff00";
         ctx.lineWidth = 3;
         ctx.beginPath();
@@ -125,7 +161,13 @@
         ctx.closePath();
         ctx.stroke();
 
-        // Marker-ID oberhalb der ersten Ecke anzeigen
+        // Ecke 0 zur Orientierung markieren
+        ctx.fillStyle = "#00ff00";
+        ctx.beginPath();
+        ctx.arc(corners[0].x, corners[0].y, 5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // ID anzeigen
         ctx.fillStyle = "#ff0000";
         ctx.font = "20px Arial";
         ctx.fillText("ID: " + marker.id, corners[0].x, corners[0].y - 10);
@@ -133,13 +175,73 @@
     }
 
     /******************************************************************
-     * 4) RENDER-SCHLEIFE
+     * 5) POSE-TEXT ZEICHNEN
+     * ---------------------------------------------------------------
+     * Zeigt die berechneten Werte im Bild an.
+     ******************************************************************/
+    function drawPoseText(translation) {
+      ctx.fillStyle = "yellow";
+      ctx.font = "20px Arial";
+
+      ctx.fillText(`X: ${translation[0].toFixed(2)}`, 10, 30);
+      ctx.fillText(`Y: ${translation[1].toFixed(2)}`, 10, 60);
+      ctx.fillText(`Z: ${translation[2].toFixed(2)}`, 10, 90);
+    }
+
+    /******************************************************************
+     * 6) HILFSFUNKTION: MARKER-ECKEN FÜR POSIT UMWANDELN
+     * ---------------------------------------------------------------
+     * Der POSIT-Algorithmus erwartet Koordinaten relativ
+     * zum Bildzentrum.
+     *
+     * Deshalb:
+     * - x wird um die halbe Bildbreite verschoben
+     * - y wird invertiert und um die halbe Bildhöhe verschoben
+     ******************************************************************/
+    function convertCornersForPosit(corners) {
+      return corners.map(corner => ({
+        x: corner.x - canvas.width / 2,
+        y: canvas.height / 2 - corner.y
+      }));
+    }
+
+    /******************************************************************
+     * 7) POSE FÜR ERSTEN MARKER BERECHNEN
+     * ---------------------------------------------------------------
+     * Wir nehmen erstmal nur den ersten erkannten Marker,
+     * damit die Logik einfach und stabil bleibt.
+     ******************************************************************/
+    function estimatePoseFromFirstMarker(markers) {
+      if (!markers || markers.length === 0) {
+        return null;
+      }
+
+      const marker = markers[0];
+      const positCorners = convertCornersForPosit(marker.corners);
+
+      // Pose berechnen
+      const pose = posit.pose(positCorners);
+
+      if (!pose || !pose.bestTranslation) {
+        return null;
+      }
+
+      return {
+        id: marker.id,
+        translation: pose.bestTranslation,
+        rotation: pose.bestRotation
+      };
+    }
+
+    /******************************************************************
+     * 8) RENDER-SCHLEIFE
      * ---------------------------------------------------------------
      * Pro Frame:
-     * - Videobild ins Canvas zeichnen
-     * - Bilddaten lesen
+     * - echtes Videobild ins Canvas zeichnen
      * - Marker erkennen
-     * - Marker ins Bild einzeichnen
+     * - Marker darstellen
+     * - Pose berechnen
+     * - Pose-Werte anzeigen
      ******************************************************************/
     function renderFrame() {
       if (video.readyState >= 2) {
@@ -147,29 +249,45 @@
         if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
           canvas.width = video.videoWidth;
           canvas.height = video.videoHeight;
+
+          // POSIT initialisieren, sobald Breite bekannt ist
+          posit = new POS.Posit(MARKER_SIZE, canvas.width);
         }
 
-        // Video ins Canvas zeichnen
+        // 1) Kamerabild ins Canvas zeichnen
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-        // Bilddaten holen
+        // 2) Bilddaten holen
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-        // Marker erkennen
+        // 3) Marker erkennen
         const markers = detector.detect(imageData);
 
-        // Marker ins Bild malen
+        // 4) Markerrahmen + IDs zeichnen
         drawMarkers(markers);
 
-        // Status anzeigen
-        statusEl.textContent = `Status: Kamera läuft – ${markers.length} Marker erkannt`;
+        // 5) Pose berechnen
+        const poseResult = estimatePoseFromFirstMarker(markers);
+
+        // 6) Pose anzeigen, falls vorhanden
+        if (poseResult) {
+          drawPoseText(poseResult.translation);
+
+          statusEl.textContent =
+            `Status: Kamera läuft – ${markers.length} Marker erkannt – Pose aktiv`;
+        } else {
+          statusEl.textContent =
+            `Status: Kamera läuft – ${markers.length} Marker erkannt`;
+        }
       }
 
       animationId = requestAnimationFrame(renderFrame);
     }
 
     /******************************************************************
-     * 5) KAMERA STARTEN
+     * 9) KAMERA STARTEN
+     * ---------------------------------------------------------------
+     * Nutzt bevorzugt die Rückkamera des iPhones.
      ******************************************************************/
     async function startCamera() {
       try {
@@ -197,7 +315,7 @@
     }
 
     /******************************************************************
-     * 6) KAMERA STOPPEN
+     * 10) KAMERA STOPPEN
      ******************************************************************/
     function stopCamera() {
       if (animationId) {
@@ -213,12 +331,11 @@
 
       video.srcObject = null;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-
       statusEl.textContent = "Status: Kamera gestoppt";
     }
 
     /******************************************************************
-     * 7) BUTTONS
+     * 11) BUTTONS
      ******************************************************************/
     startCameraBtn.addEventListener("click", startCamera);
     stopCameraBtn.addEventListener("click", stopCamera);
