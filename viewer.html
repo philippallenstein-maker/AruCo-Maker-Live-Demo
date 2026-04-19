@@ -51,6 +51,7 @@
         <p>Pitch: <span id="pitch">0.00</span> rad</p>
         <p>Roll: <span id="roll">0.00</span> rad</p>
         <p>Status: <span id="status">verbinde...</span></p>
+        <button id="resetViewBtn">Ansicht zurücksetzen</button>
       </div>
 
       <hr />
@@ -84,6 +85,7 @@
      * wirklich räumlich aussieht.
      ******************************************************************/
     import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+    import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js";
 
     /******************************************************************
      * 2) WEBSOCKET-URL
@@ -140,6 +142,29 @@
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(sceneContainer.clientWidth, sceneContainer.clientHeight);
     sceneContainer.appendChild(renderer.domElement);
+
+
+    /******************************************************************
+     * INTERAKTIVE KAMERASTEUERUNG MIT DER MAUS
+     * ---------------------------------------------------------------
+     * OrbitControls erlaubt:
+     * - drehen mit linker Maustaste
+     * - zoomen mit Mausrad
+     * - verschieben mit rechter Maustaste
+     ******************************************************************/
+    const controls = new OrbitControls(camera, renderer.domElement);
+
+    // Punkt, auf den die Ansicht schaut
+    controls.target.set(1.0, 1.1, 0.8);
+
+    // Weiche Bewegung
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+
+    // Optional: Winkel begrenzen, damit man nicht komplett "unter" den Raum fliegt
+    controls.maxPolarAngle = Math.PI / 2.05;
+    controls.minDistance = 2.2;
+    controls.maxDistance = 9;
 
     /******************************************************************
      * 6) LICHT
@@ -356,8 +381,12 @@
      * 17) SZENE ANIMIEREN
      ******************************************************************/
     function animate() {
-      requestAnimationFrame(animate);
-      renderer.render(scene, camera);
+    requestAnimationFrame(animate);
+
+    // OrbitControls aktualisieren
+    controls.update();
+
+    renderer.render(scene, camera);
     }
 
     animate();
@@ -409,6 +438,14 @@
         updatePhonePose();
       }
     };
+
+    const resetViewBtn = document.getElementById("resetViewBtn");
+
+    resetViewBtn.addEventListener("click", () => {
+    camera.position.set(3.8, 2.6, 4.8);
+    controls.target.set(1.0, 1.0, 0.8);
+    controls.update();
+    });
   </script>
 </body>
 </html>
