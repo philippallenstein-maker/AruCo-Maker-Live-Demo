@@ -1,15 +1,17 @@
+
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AruCo Viewer</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <h1>Laptop / Beamer Viewer</h1>
 
   <div class="layout">
+    <!-- Linke Infobox mit Live-Werten -->
     <div class="panel">
       <h2>Live-Werte</h2>
       <p>X: <span id="x">0.00</span></p>
@@ -19,17 +21,39 @@
       <p>Pitch: <span id="pitch">0.00</span></p>
       <p>Roll: <span id="roll">0.00</span></p>
       <p>Status: <span id="status">verbinde...</span></p>
+
+      <hr />
+
+      <p><strong>Interpretation:</strong></p>
+      <p>
+        Die graue Fläche ist die Wand mit 4 festen Markern.
+        Der blaue Punkt ist die Kamera.
+        Die blaue Linie zeigt die Blickrichtung.
+      </p>
     </div>
 
+    <!-- Rechte Seite = Visualisierung -->
     <div class="panel">
-      <h2>Top-Down Ansicht</h2>
-      <canvas id="map" width="600" height="350"></canvas>
+      <h2>Räumliche Ansicht</h2>
+      <canvas id="scene" width="900" height="560"></canvas>
     </div>
   </div>
 
   <script>
+    /******************************************************************
+     * 1) WEBSOCKET-URL
+     * ---------------------------------------------------------------
+     * Hier kommt die URL deines Codespace-WebSocket-Servers rein.
+     * WICHTIG:
+     * - https://... wird zu wss://...
+     ******************************************************************/
     const WS_URL = "wss://scaling-chainsaw-x5g5r9gj575pfppwq-8080.app.github.dev/"; //Hier kommt dann immer die Aktuelle Adresse rein mit Wss anstatt https und den Port auf Public stellen damit alls funkt
 
+    /******************************************************************
+     * 2) HTML-ELEMENTE HOLEN
+     * ---------------------------------------------------------------
+     * Diese Elemente aktualisieren wir später laufend mit Live-Daten.
+     ******************************************************************/
     const xEl = document.getElementById("x");
     const yEl = document.getElementById("y");
     const zEl = document.getElementById("z");
@@ -38,66 +62,312 @@
     const rollEl = document.getElementById("roll");
     const statusEl = document.getElementById("status");
 
-    const canvas = document.getElementById("map");
+    const canvas = document.getElementById("scene");
     const ctx = canvas.getContext("2d");
 
+    /******************************************************************
+     * 3) AKTUELLE POSE
+     * ---------------------------------------------------------------
+     * In diesem Objekt speichern wir die zuletzt empfangenen Daten.
+     * Diese kommen aktuell noch aus den Dummy-Daten vom iPhone.
+     *
+     * Bedeutung:
+     * x = seitliche Position
+     * y = Höhe
+     * z = Abstand zur Wand
+     * yaw = Drehung links/rechts
+     * pitch = Kippen nach oben/unten
+     * roll = Rollen der Kamera
+     ******************************************************************/
     let pose = {
       x: 0,
       y: 0,
-      z: 0,
+      z: 1.2,
       yaw: 0,
       pitch: 0,
       roll: 0
     };
 
-    function drawScene() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    /******************************************************************
+     * 4) FESTE WELT DEINER DEMO
+     * ---------------------------------------------------------------
+     * Hier definieren wir das "virtuelle Modell" deiner Wand.
+     *
+     * Wir nehmen:
+     * - eine Wand
+     * - 4 Marker an den Ecken
+     *
+     * Maße in Metern:
+     * Breite = 0.8 m
+     * Höhe   = 0.6 m
+     *
+     * So wie du es geplant hast.
+     ******************************************************************/
+    const world = {
+      wallWidth: 0.8,
+      wallHeight: 0.6,
 
-      // Wand / Board links
-      ctx.fillStyle = "#777";
-      ctx.fillRect(60, 120, 25, 100);
+      markers: [
+        { id: 0, x: 0.0, y: 0.0, label: "ID 0" },   // oben links
+        { id: 1, x: 0.8, y: 0.0, label: "ID 1" },   // oben rechts
+        { id: 2, x: 0.0, y: -0.6, label: "ID 2" },  // unten links
+        { id: 3, x: 0.8, y: -0.6, label: "ID 3" }   // unten rechts
+      ]
+    };
+
+    /******************************************************************
+     * 5) HILFSFUNKTION: 3D -> 2D PROJEKTION
+     * ---------------------------------------------------------------
+     * Wir bauen keine echte 3D-Engine, sondern eine einfache
+     * pseudo-3D/isometrische Darstellung.
+     *
+     * Idee:
+     * - x läuft nach rechts
+     * - y läuft nach oben/unten
+     * - z läuft "in den Raum hinein"
+     *
+     * Dadurch wirkt die Szene räumlich.
+     ******************************************************************/
+    function project(point) {
+      // Ursprung für die Zeichnung auf dem Canvas
+      const originX = 180;
+      const originY = 420;
+
+      // Skalierung: Meter -> Pixel
+      const scale = 260;
+
+      // Einfache isometrische Projektion:
+      // x wird nach rechts gezeichnet
+      // y wird nach oben/unten gezeichnet
+      // z verschiebt zusätzlich nach rechts und leicht nach oben
+      const screenX = originX + point.x * scale + point.z * 140;
+      const screenY = originY + point.y * scale - point.z * 70;
+
+      return { x: screenX, y: screenY };
+    }
+
+    /******************************************************************
+     * 6) WAND ZEICHNEN
+     * ---------------------------------------------------------------
+     * Wir definieren 4 Ecken der Wand im 3D-Raum und projizieren sie
+     * dann auf den 2D-Canvas.
+     *
+     * Die Wand liegt bei z = 0.
+     ******************************************************************/
+    function drawWall() {
+      const topLeft = project({ x: 0, y: 0, z: 0 });
+      const topRight = project({ x: world.wallWidth, y: 0, z: 0 });
+      const bottomRight = project({ x: world.wallWidth, y: -world.wallHeight, z: 0 });
+      const bottomLeft = project({ x: 0, y: -world.wallHeight, z: 0 });
+
+      // Wandfläche
+      ctx.beginPath();
+      ctx.moveTo(topLeft.x, topLeft.y);
+      ctx.lineTo(topRight.x, topRight.y);
+      ctx.lineTo(bottomRight.x, bottomRight.y);
+      ctx.lineTo(bottomLeft.x, bottomLeft.y);
+      ctx.closePath();
+
+      ctx.fillStyle = "#d9d9d9";
+      ctx.fill();
+
+      ctx.strokeStyle = "#666";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Beschriftung
       ctx.fillStyle = "#222";
-      ctx.font = "16px Arial";
-      ctx.fillText("Board", 45, 110);
+      ctx.font = "18px Arial";
+      ctx.fillText("Wand / Marker-Board", topLeft.x - 10, topLeft.y - 16);
+    }
 
-      // Koordinatensystem grob
-      ctx.strokeStyle = "#ddd";
+    /******************************************************************
+     * 7) MARKER ZEICHNEN
+     * ---------------------------------------------------------------
+     * Jeder Marker wird als kleines schwarzes Quadrat auf der Wand
+     * dargestellt.
+     *
+     * Wir zeichnen ihn nicht exakt perspektivisch verzerrt,
+     * sondern bewusst vereinfacht, damit die Demo verständlich bleibt.
+     ******************************************************************/
+    function drawMarkers() {
+      for (const marker of world.markers) {
+        const p = project({ x: marker.x, y: marker.y, z: 0 });
+
+        const size = 24;
+
+        // Marker-Quadrat
+        ctx.fillStyle = "#111";
+        ctx.fillRect(p.x - size / 2, p.y - size / 2, size, size);
+
+        // weißes Innenquadrat zur visuellen Marker-Anmutung
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(p.x - size / 4, p.y - size / 4, size / 2, size / 2);
+
+        // ID-Beschriftung
+        ctx.fillStyle = "#111";
+        ctx.font = "14px Arial";
+        ctx.fillText(marker.label, p.x - 16, p.y - 18);
+      }
+    }
+
+    /******************************************************************
+     * 8) KOORDINATENACHSEN ZEICHNEN
+     * ---------------------------------------------------------------
+     * Damit man im Vortrag besser versteht:
+     * - X läuft entlang der Wand nach rechts
+     * - Y läuft an der Wand nach unten/oben
+     * - Z läuft von der Wand in den Raum hinein
+     ******************************************************************/
+    function drawAxes() {
+      const origin = project({ x: 0, y: 0, z: 0 });
+      const xAxis = project({ x: 0.25, y: 0, z: 0 });
+      const yAxis = project({ x: 0, y: -0.25, z: 0 });
+      const zAxis = project({ x: 0, y: 0, z: 0.35 });
+
+      // X-Achse
       ctx.beginPath();
-      ctx.moveTo(100, 175);
-      ctx.lineTo(560, 175);
+      ctx.moveTo(origin.x, origin.y);
+      ctx.lineTo(xAxis.x, xAxis.y);
+      ctx.strokeStyle = "red";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.fillStyle = "red";
+      ctx.fillText("X", xAxis.x + 6, xAxis.y);
+
+      // Y-Achse
+      ctx.beginPath();
+      ctx.moveTo(origin.x, origin.y);
+      ctx.lineTo(yAxis.x, yAxis.y);
+      ctx.strokeStyle = "green";
+      ctx.stroke();
+      ctx.fillStyle = "green";
+      ctx.fillText("Y", yAxis.x - 20, yAxis.y + 4);
+
+      // Z-Achse
+      ctx.beginPath();
+      ctx.moveTo(origin.x, origin.y);
+      ctx.lineTo(zAxis.x, zAxis.y);
+      ctx.strokeStyle = "blue";
+      ctx.stroke();
+      ctx.fillStyle = "blue";
+      ctx.fillText("Z", zAxis.x + 6, zAxis.y - 4);
+    }
+
+    /******************************************************************
+     * 9) KAMERA ZEICHNEN
+     * ---------------------------------------------------------------
+     * Wir zeichnen die Kamera als blauen Kreis.
+     * Zusätzlich zeichnen wir:
+     * - eine Blickrichtung (yaw)
+     * - Verbindung zur Wand
+     *
+     * Später werden diese Daten aus echten Marker-Pose-Werten kommen.
+     ******************************************************************/
+    function drawCamera() {
+      const camPoint = project({
+        x: pose.x,
+        y: pose.y,
+        z: pose.z
+      });
+
+      // Verbindungslinie zur Wand = macht räumlich klar,
+      // wie weit die Kamera von der Wand entfernt ist
+      const wallReference = project({
+        x: pose.x,
+        y: pose.y,
+        z: 0
+      });
+
+      ctx.beginPath();
+      ctx.moveTo(camPoint.x, camPoint.y);
+      ctx.lineTo(wallReference.x, wallReference.y);
+      ctx.strokeStyle = "rgba(31,111,235,0.35)";
+      ctx.lineWidth = 2;
       ctx.stroke();
 
+      // Kamera-Kreis
       ctx.beginPath();
-      ctx.moveTo(100, 40);
-      ctx.lineTo(100, 310);
-      ctx.stroke();
-
-      // Kamera-Position
-      const camX = 180 + pose.x * 80;
-      const camY = 175 + pose.z * 80;
-
-      ctx.beginPath();
-      ctx.arc(camX, camY, 10, 0, Math.PI * 2);
+      ctx.arc(camPoint.x, camPoint.y, 10, 0, Math.PI * 2);
       ctx.fillStyle = "#1f6feb";
       ctx.fill();
 
-      // Blickrichtung
-      const len = 35;
+      // Blickrichtung auf Basis von yaw
+      const len = 40;
+      const dx = Math.cos(pose.yaw) * len;
+      const dy = Math.sin(pose.yaw) * len;
+
       ctx.beginPath();
-      ctx.moveTo(camX, camY);
-      ctx.lineTo(
-        camX + Math.cos(pose.yaw) * len,
-        camY + Math.sin(pose.yaw) * len
-      );
+      ctx.moveTo(camPoint.x, camPoint.y);
+      ctx.lineTo(camPoint.x + dx, camPoint.y + dy);
       ctx.strokeStyle = "#1f6feb";
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 4;
       ctx.stroke();
 
+      // Kleine Beschriftung
+      ctx.fillStyle = "#1f6feb";
+      ctx.font = "15px Arial";
+      ctx.fillText("Kamera / iPhone", camPoint.x + 12, camPoint.y - 12);
+    }
+
+    /******************************************************************
+     * 10) HINTERGRUND / BODEN ZEICHNEN
+     * ---------------------------------------------------------------
+     * Damit die Szene räumlicher wirkt, zeichnen wir noch eine
+     * Bodenfläche als Hilfsebene.
+     ******************************************************************/
+    function drawFloorGuide() {
+      const p1 = project({ x: 0, y: -world.wallHeight, z: 0 });
+      const p2 = project({ x: world.wallWidth, y: -world.wallHeight, z: 0 });
+      const p3 = project({ x: world.wallWidth, y: -world.wallHeight, z: 1.2 });
+      const p4 = project({ x: 0, y: -world.wallHeight, z: 1.2 });
+
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.lineTo(p3.x, p3.y);
+      ctx.lineTo(p4.x, p4.y);
+      ctx.closePath();
+
+      ctx.fillStyle = "rgba(180, 180, 180, 0.12)";
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(120, 120, 120, 0.2)";
+      ctx.stroke();
+    }
+
+    /******************************************************************
+     * 11) GESAMTE SZENE ZEICHNEN
+     * ---------------------------------------------------------------
+     * Diese Funktion wird jedes Frame neu aufgerufen.
+     ******************************************************************/
+    function drawScene() {
+      // Canvas leeren
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Hintergrund
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Szene in sinnvoller Reihenfolge zeichnen
+      drawFloorGuide();
+      drawWall();
+      drawAxes();
+      drawMarkers();
+      drawCamera();
+
+      // Animation weiterlaufen lassen
       requestAnimationFrame(drawScene);
     }
 
+    // Start der Zeichenschleife
     drawScene();
 
+    /******************************************************************
+     * 12) WEBSOCKET-VERBINDUNG
+     * ---------------------------------------------------------------
+     * Der Viewer empfängt hier laufend die Daten vom iPhone.
+     ******************************************************************/
     const ws = new WebSocket(WS_URL);
 
     ws.onopen = () => {
@@ -116,8 +386,10 @@
       const msg = JSON.parse(event.data);
 
       if (msg.type === "pose") {
+        // Neue Pose übernehmen
         pose = msg.data;
 
+        // Werte in der Infobox anzeigen
         xEl.textContent = pose.x.toFixed(2);
         yEl.textContent = pose.y.toFixed(2);
         zEl.textContent = pose.z.toFixed(2);
