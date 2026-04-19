@@ -277,10 +277,14 @@
         distanceLine.material.dispose();
       }
 
-      const points = [
-        new THREE.Vector3(pose.x, pose.y, 0),
-        new THREE.Vector3(pose.x, pose.y, pose.z)
-      ];
+      const clampedX = Math.max(0.1, Math.min(1.9, pose.x));
+const clampedY = Math.max(0.1, Math.min(2.3, pose.y));
+const clampedZ = Math.max(0.1, Math.min(2.4, pose.z));
+
+const points = [
+  new THREE.Vector3(clampedX, clampedY, 0),
+  new THREE.Vector3(clampedX, clampedY, clampedZ)
+];
 
       const geometry = new THREE.BufferGeometry().setFromPoints(points);
       const material = new THREE.LineBasicMaterial({ color: 0x1f6feb });
@@ -289,7 +293,12 @@
     }
 
     function updatePhonePose() {
-      phoneGroup.position.set(pose.x, pose.y, pose.z);
+      // Werte auf den Raum begrenzen, damit die Kamera nicht aus der Box springt
+const clampedX = Math.max(0.1, Math.min(1.9, pose.x));
+const clampedY = Math.max(0.1, Math.min(2.3, pose.y));
+const clampedZ = Math.max(0.1, Math.min(2.4, pose.z));
+
+phoneGroup.position.set(clampedX, clampedY, clampedZ);
       phoneGroup.rotation.order = "YXZ";
       phoneGroup.rotation.y = pose.yaw;
       phoneGroup.rotation.x = pose.pitch;

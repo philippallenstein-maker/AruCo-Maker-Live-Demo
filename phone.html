@@ -222,6 +222,16 @@
  * - Y wird auf sinnvolle Raumhöhe gelegt
  * - Z bekommt einen Offset, damit die Kamera sichtbar vor der Wand steht
  ******************************************************************/
+/******************************************************************
+ * WERTE AN DEN VIEWER SENDEN
+ * ---------------------------------------------------------------
+ * Wichtig:
+ * Wir zentrieren jetzt NICHT künstlich auf die Raummitte.
+ * Stattdessen schicken wir die Pose deutlich direkter weiter,
+ * damit wir sehen, wie sich die Rohwerte wirklich verhalten.
+ *
+ * Diese Version ist absichtlich ein Debug-/Kalibrierstand.
+ ******************************************************************/
 function sendPoseToViewer(translation) {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return;
@@ -232,20 +242,26 @@ function sendPoseToViewer(translation) {
   const rawY = translation[1];
   const rawZ = translation[2];
 
-  // Für den Viewer sichtbarer umrechnen:
-  // X: seitliche Bewegung stärker verstärken
-  const viewerX = 1.0 + rawX / 1;
+  // DEBUG: Rohwerte in Konsole ansehen
+  console.log("RAW translation:", {
+    rawX,
+    rawY,
+    rawZ
+  });
 
-  // Y: ungefähr auf Augen-/Handyhöhe im Raum zentrieren
-  const viewerY = 1.2 - rawY / 1;
+  /*
+    Wichtige Idee:
+    Wir benutzen jetzt erstmal KEINE feste Raum-Mitte wie 1.0 oder 1.2,
+    sondern bilden die Werte deutlich direkter ab.
 
-  // Z: Abstand zur Wand, mit Offset damit die Kamera nicht "an der Wand klebt"
-  const viewerZ = 0.8 + rawZ / 1;
+    Das ist noch nicht die finale Raumlogik,
+    aber damit sehen wir endlich, ob sich X/Y/Z sauber ändern.
+  */
 
   const posePayload = {
-    x: viewerX,
-    y: viewerY,
-    z: viewerZ,
+    x: rawX * 0.2,
+    y: rawY * -0.2,
+    z: rawZ * 0.2,
     yaw: 0,
     pitch: 0,
     roll: 0
