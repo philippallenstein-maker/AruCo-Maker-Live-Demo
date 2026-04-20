@@ -16,9 +16,18 @@
   </script>
 
   <style>
+    .viewer-layout {
+      display: grid;
+      grid-template-columns: minmax(320px, 380px) minmax(500px, 1fr);
+      gap: 20px;
+      align-items: start;
+    }
+
     #scene3d {
-      width: 980px;
-      height: 640px;
+      width: 100%;
+      min-height: 640px;
+      height: 72vh;
+      max-height: 820px;
       border-radius: 12px;
       overflow: hidden;
       background: #f8f8f8;
@@ -75,10 +84,6 @@
       margin-top: 8px;
     }
 
-    .hidden {
-      display: none;
-    }
-
     details {
       margin-top: 12px;
       border: 1px solid #ddd;
@@ -109,18 +114,29 @@
       opacity: 0.5;
       cursor: not-allowed;
     }
+
+    @media (max-width: 1100px) {
+      .viewer-layout {
+        grid-template-columns: 1fr;
+      }
+
+      #scene3d {
+        min-height: 500px;
+        height: 60vh;
+      }
+    }
   </style>
 </head>
 <body>
   <h1>Laptop / Beamer Viewer</h1>
 
-  <div class="layout">
+  <div class="viewer-layout">
     <div class="panel" style="max-width: 380px;">
       <h2>Live-Werte</h2>
 
       <div class="info-grid">
-        <p>X: <span id="x">1.00</span> m</p>
-        <p>Y: <span id="y">1.20</span> m</p>
+        <p>X: <span id="x">0.40</span> m</p>
+        <p>Y: <span id="y">0.30</span> m</p>
         <p>Z: <span id="z">1.20</span> m</p>
         <p>Yaw: <span id="yaw">0.00</span> rad</p>
         <p>Pitch: <span id="pitch">0.00</span> rad</p>
@@ -137,7 +153,7 @@
         <input
           id="wsUrlInput"
           type="text"
-          placeholder="wss://scaling-chainsaw-x5g5r9gj575pfppwq-8080.app.github.dev/"
+          placeholder="wss://deine-adresse-8080.app.github.dev/"
         />
 
         <div class="mode-row">
@@ -175,6 +191,10 @@
       <hr />
 
       <p><strong>Interpretation</strong></p>
+      <p>
+        Der Ursprung des Koordinatensystems liegt bei <strong>ID2</strong> unten links.
+        X läuft nach rechts entlang der Wand, Y nach oben, Z in den Raum hinein.
+      </p>
       <p>
         Die graue Wand hinten ist die Marker-Wand.
         Die 4 schwarzen Felder sind die festen ArUco-Marker.
@@ -238,7 +258,7 @@
     /******************************************************************
      * 2) MODUS / SOCKET
      ******************************************************************/
-    let mode = "test"; // "test" oder "live"
+    let mode = "test";
     let ws = null;
 
     function setMode(newMode) {
@@ -247,7 +267,6 @@
 
       const liveActive = newMode === "live";
 
-      // Testpanel nur im Testmodus benutzbar
       testPanel.open = !liveActive;
 
       const testButtons = [
@@ -266,11 +285,20 @@
     }
 
     /******************************************************************
-     * 3) TEST-POSE / LIVE-POSE
+     * 3) TEST-POSE
+     * ---------------------------------------------------------------
+     * WICHTIG:
+     * Ursprung liegt bei ID2 unten links.
+     *
+     * Also:
+     * ID2 = (0.0, 0.0, 0.0)
+     * ID3 = (0.8, 0.0, 0.0)
+     * ID0 = (0.0, 0.6, 0.0)
+     * ID1 = (0.8, 0.6, 0.0)
      ******************************************************************/
     let pose = {
-      x: 1.0,
-      y: 1.2,
+      x: 0.4,
+      y: 0.3,
       z: 1.2,
       yaw: 0,
       pitch: 0,
@@ -292,8 +320,9 @@
       0.1,
       100
     );
-    camera.position.set(4.2, 2.8, 5.2);
-    camera.lookAt(1.0, 1.2, 1.0);
+
+    camera.position.set(4.8, 3.0, 5.8);
+    camera.lookAt(0.8, 0.8, 1.2);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(sceneContainer.clientWidth, sceneContainer.clientHeight);
@@ -301,16 +330,16 @@
     sceneContainer.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(1.0, 1.2, 1.0);
+    controls.target.set(0.8, 0.8, 1.2);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
     controls.maxPolarAngle = Math.PI / 2.02;
     controls.minDistance = 2.5;
-    controls.maxDistance = 10;
+    controls.maxDistance = 12;
 
     resetViewBtn.addEventListener("click", () => {
-      camera.position.set(4.2, 2.8, 5.2);
-      controls.target.set(1.0, 1.2, 1.0);
+      camera.position.set(4.8, 3.0, 5.8);
+      controls.target.set(0.8, 0.8, 1.2);
       controls.update();
     });
 
@@ -320,16 +349,18 @@
     scene.add(new THREE.AmbientLight(0xffffff, 0.9));
 
     const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(4, 5, 3);
+    directionalLight.position.set(5, 5, 4);
     scene.add(directionalLight);
 
     /******************************************************************
      * 6) RAUM
+     * ---------------------------------------------------------------
+     * Raum breiter gemacht
      ******************************************************************/
     const room = {
-      width: 2.0,
+      width: 3.0,
       height: 2.6,
-      depth: 3.2
+      depth: 4.0
     };
 
     const roomGeometry = new THREE.BoxGeometry(room.width, room.height, room.depth);
@@ -368,14 +399,16 @@
 
     /******************************************************************
      * 9) MARKER AN DER WAND
+     * ---------------------------------------------------------------
+     * Ursprung ist ID2 unten links
      ******************************************************************/
     const markerSize = 0.10;
 
     const markers = [
-      { id: 0, x: 0.6, y: 1.5, z: 0.01 },
-      { id: 1, x: 1.4, y: 1.5, z: 0.01 },
-      { id: 2, x: 0.6, y: 0.9, z: 0.01 },
-      { id: 3, x: 1.4, y: 0.9, z: 0.01 }
+      { id: 2, x: 0.0, y: 0.0, z: 0.01 },
+      { id: 3, x: 0.8, y: 0.0, z: 0.01 },
+      { id: 0, x: 0.0, y: 0.6, z: 0.01 },
+      { id: 1, x: 0.8, y: 0.6, z: 0.01 }
     ];
 
     function createMarker(label) {
@@ -419,10 +452,10 @@
     });
 
     /******************************************************************
-     * 10) ACHSENHILFE
+     * 10) KOORDINATENACHSEN DIREKT AN ID2
      ******************************************************************/
-    const axesHelper = new THREE.AxesHelper(0.5);
-    axesHelper.position.set(0.2, 0.2, 0.2);
+    const axesHelper = new THREE.AxesHelper(0.6);
+    axesHelper.position.set(0, 0, 0.08);
     scene.add(axesHelper);
 
     /******************************************************************
@@ -509,20 +542,20 @@
       updatePhonePose();
     }
 
-    btnCenter.addEventListener("click", () => setPose({ x: 1.0, y: 1.2, z: 1.2, yaw: 0, pitch: 0, roll: 0 }));
-    btnTopLeft.addEventListener("click", () => setPose({ x: 0.6, y: 1.5, z: 1.2 }));
-    btnTopRight.addEventListener("click", () => setPose({ x: 1.4, y: 1.5, z: 1.2 }));
-    btnBottomLeft.addEventListener("click", () => setPose({ x: 0.6, y: 0.9, z: 1.2 }));
-    btnBottomRight.addEventListener("click", () => setPose({ x: 1.4, y: 0.9, z: 1.2 }));
+    btnCenter.addEventListener("click", () => setPose({ x: 0.4, y: 0.3, z: 1.2, yaw: 0, pitch: 0, roll: 0 }));
+    btnTopLeft.addEventListener("click", () => setPose({ x: 0.0, y: 0.6, z: 1.2 }));
+    btnTopRight.addEventListener("click", () => setPose({ x: 0.8, y: 0.6, z: 1.2 }));
+    btnBottomLeft.addEventListener("click", () => setPose({ x: 0.0, y: 0.0, z: 1.2 }));
+    btnBottomRight.addEventListener("click", () => setPose({ x: 0.8, y: 0.0, z: 1.2 }));
 
     btnNear.addEventListener("click", () => setPose({ z: 0.5 }));
     btnMedium.addEventListener("click", () => setPose({ z: 1.2 }));
     btnFar.addEventListener("click", () => setPose({ z: 2.2 }));
 
-    btnLeft.addEventListener("click", () => setPose({ x: 0.4 }));
-    btnRight.addEventListener("click", () => setPose({ x: 1.6 }));
-    btnUp.addEventListener("click", () => setPose({ y: 1.8 }));
-    btnDown.addEventListener("click", () => setPose({ y: 0.5 }));
+    btnLeft.addEventListener("click", () => setPose({ x: 0.0 }));
+    btnRight.addEventListener("click", () => setPose({ x: 0.8 }));
+    btnUp.addEventListener("click", () => setPose({ y: 0.8 }));
+    btnDown.addEventListener("click", () => setPose({ y: 0.0 }));
 
     /******************************************************************
      * 15) AUTO-TEST
@@ -535,9 +568,7 @@
 
     btnAutoStop.addEventListener("click", () => {
       autoTestRunning = false;
-      if (mode === "test") {
-        statusEl.textContent = "Testmodus";
-      }
+      if (mode === "test") statusEl.textContent = "Testmodus";
     });
 
     function updateAutoTest() {
@@ -545,8 +576,8 @@
 
       autoT += 0.01;
 
-      pose.x = 1.0 + Math.cos(autoT) * 0.55;
-      pose.y = 1.2 + Math.sin(autoT * 0.7) * 0.35;
+      pose.x = 0.4 + Math.cos(autoT) * 0.35;
+      pose.y = 0.3 + Math.sin(autoT * 0.7) * 0.20;
       pose.z = 1.4 + Math.sin(autoT * 1.2) * 0.9;
       pose.yaw = Math.sin(autoT * 0.8) * 0.4;
       pose.pitch = 0;
@@ -577,7 +608,6 @@
       ws.onopen = () => {
         setMode("live");
         statusEl.textContent = "Live verbunden";
-        console.log("Viewer WebSocket verbunden");
       };
 
       ws.onerror = (err) => {
@@ -586,14 +616,11 @@
       };
 
       ws.onclose = () => {
-        console.log("Viewer WebSocket getrennt");
         setMode("test");
         statusEl.textContent = "Live getrennt";
       };
 
       ws.onmessage = (event) => {
-        console.log("Viewer hat Nachricht bekommen:", event.data);
-
         const msg = JSON.parse(event.data);
 
         if (msg.type === "pose") {
