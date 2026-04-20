@@ -12,7 +12,7 @@ h1, h2 {
 
 .phone-layout {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
   gap: 20px;
   align-items: start;
 }
@@ -20,7 +20,7 @@ h1, h2 {
 .panel {
   background: white;
   border-radius: 12px;
-  padding: 20px;
+  padding: 16px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
 }
 
@@ -68,7 +68,6 @@ button:disabled {
 
 .canvas-wrapper {
   width: 100%;
-  max-width: 100%;
   overflow: hidden;
   border-radius: 12px;
   border: 1px solid #ccc;
