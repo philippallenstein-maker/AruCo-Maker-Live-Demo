@@ -23,6 +23,11 @@ import {
 import {
   FOCAL_LENGTH_PX
 } from "./config.js";
+import {
+  smoothMarker,
+  smoothDistance,
+  resetTracking
+} from "./tracking.js";
 
 let elements = null;
 let lastMarkers = [];
@@ -86,14 +91,25 @@ function handleFrame() {
     ensureDetector(canvas.width);
 
     if (shouldRunDetection()) {
+        if (!referenceMarker) {
+  resetTracking();
+}
       const markers = detectMarkers(ctx, canvas);
-      const referenceMarker = chooseReferenceMarker(markers);
+      let referenceMarker = chooseReferenceMarker(markers);
+        referenceMarker = smoothMarker(referenceMarker);
 
       let referencePose = null;
 
       if (referenceMarker) {
         referencePose = estimateMarkerPose(referenceMarker, canvas);
-        estimateDistanceFromMarker(referenceMarker, FOCAL_LENGTH_PX, 0.2, 5.0);
+        const rawDistance = estimateDistanceFromMarker(
+  referenceMarker,
+  FOCAL_LENGTH_PX,
+  0.2,
+  5.0
+);
+
+const distance = smoothDistance(rawDistance);
       }
 
       lastMarkers = markers;
