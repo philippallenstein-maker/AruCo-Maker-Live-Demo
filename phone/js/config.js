@@ -24,8 +24,8 @@ export const AXIS_LENGTH_METERS = 0.06;
  * Wir arbeiten bewusst nicht zu hoch, damit es stabil läuft.
  */
 export const WORK_CANVAS = {
-  width: 1280,
-  height: 720
+  width: 1920,
+  height: 1080
 };
 
 /**
