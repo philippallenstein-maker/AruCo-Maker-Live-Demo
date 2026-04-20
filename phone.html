@@ -44,8 +44,8 @@
 
   <div class="panel">
     <p>
-      Diese Version ist auf Stabilität optimiert:
-      einfache Marker-Erkennung, Achsenanzeige und Viewer-Übertragung.
+      Diese Version nutzt immer genau einen Referenzmarker für die Positionsbestimmung.
+      Dadurch wird die Demo stabiler und nachvollziehbarer.
     </p>
 
     <div class="button-row">
@@ -55,8 +55,8 @@
 
     <p id="status">Status: bereit</p>
     <p class="small">
-      Oben links stehen die Kamerawerte.  
-      Am Marker selbst sieht man Rahmen, ID und die Achsen.
+      Oben links siehst du die Kamerawerte.  
+      Am Marker selbst siehst du Rahmen, ID und die X/Y/Z-Achsen.
     </p>
 
     <div class="video-wrapper">
@@ -72,43 +72,46 @@
 
   <script>
     /******************************************************************
-     * 1) EINSTELLUNGEN
+     * 1) EINSTELLBARE PARAMETER
      ******************************************************************/
-    const MARKER_SIZE = 0.10;
+    const MARKER_SIZE = 0.10; // 10 cm
     const WS_URL = "wss://scaling-chainsaw-x5g5r9gj575pfppwq-8080.app.github.dev/";
 
-    // Viewer-Geometrie muss dazu passen
+    // Weltpositionen müssen exakt zum Viewer passen
     const WORLD_MARKERS = {
-      0: { x: 0.6, y: 1.5, z: 0.0 },
-      1: { x: 1.4, y: 1.5, z: 0.0 },
-      2: { x: 0.6, y: 0.9, z: 0.0 },
-      3: { x: 1.4, y: 0.9, z: 0.0 }
+      0: { x: 0.6, y: 1.5, z: 0.0 }, // oben links
+      1: { x: 1.4, y: 1.5, z: 0.0 }, // oben rechts
+      2: { x: 0.6, y: 0.9, z: 0.0 }, // unten links
+      3: { x: 1.4, y: 0.9, z: 0.0 }  // unten rechts
     };
 
     const VALID_IDS = new Set([0, 1, 2, 3]);
 
-    // Distanz-Schätzung
-    const FOCAL_LENGTH_PX = 1600;
+    // Distanzschätzung aus Markergröße in Pixeln
+    const FOCAL_LENGTH_PX = 1050;
 
-    // Bewegung im Raum
-    const IMAGE_TO_WORLD_GAIN_X = 1.0;
-    const IMAGE_TO_WORLD_GAIN_Y = 0.7;
+    // Umrechnung Bildoffset -> Weltbewegung
+    const IMAGE_TO_WORLD_GAIN_X = 0.95;
+    const IMAGE_TO_WORLD_GAIN_Y = 0.75;
 
     // Glättung
     const SMOOTH_ALPHA = 0.35;
 
     // Distanzgrenzen
     const MIN_DISTANCE = 0.25;
-    const MAX_DISTANCE = 3.2;
+    const MAX_DISTANCE = 3.00;
 
-    // Achsenlänge im Overlay
+    // Achsenlänge für Marker-Overlay
     const AXIS_LENGTH_METERS = 0.06;
 
-    // Nur jedes 3. Frame rechnen -> deutlich weniger Last
-    const DETECTION_EVERY_N_FRAMES = 3;
+    // nur alle N Frames wirklich neu rechnen
+    const DETECTION_EVERY_N_FRAMES = 2;
+
+    // wie lange derselbe Marker bevorzugt wird
+    const REFERENCE_HOLD_MS = 350;
 
     /******************************************************************
-     * 2) HTML
+     * 2) HTML-ELEMENTE
      ******************************************************************/
     const startCameraBtn = document.getElementById("startCameraBtn");
     const stopCameraBtn = document.getElementById("stopCameraBtn");
@@ -127,7 +130,10 @@
     let frameCounter = 0;
 
     let lastMarkers = [];
-    let lastPoseForViewer = null;
+    let lastGoodPose = null;
+
+    let referenceMarkerId = null;
+    let referenceMarkerLastSeenTs = 0;
 
     const detector = new AR.Detector({
       dictionaryName: "ARUCO"
@@ -226,14 +232,39 @@
       return Array.from(bestById.values()).map(entry => entry.marker);
     }
 
-    function takeLargestMarkers(markers, maxCount = 2) {
-      return [...markers]
-        .sort((a, b) => getMarkerArea(b) - getMarkerArea(a))
-        .slice(0, maxCount);
+    /******************************************************************
+     * 6) REFERENZMARKER WÄHLEN
+     * ---------------------------------------------------------------
+     * Regel:
+     * - wenn der bisherige Referenzmarker noch sichtbar ist: behalten
+     * - sonst größten sichtbaren Marker nehmen
+     ******************************************************************/
+    function chooseReferenceMarker(markers) {
+      const now = performance.now();
+
+      if (referenceMarkerId !== null) {
+        const stillVisible = markers.find(m => m.id === referenceMarkerId);
+        if (stillVisible) {
+          referenceMarkerLastSeenTs = now;
+          return stillVisible;
+        }
+      }
+
+      if (!markers.length) {
+        if (now - referenceMarkerLastSeenTs > REFERENCE_HOLD_MS) {
+          referenceMarkerId = null;
+        }
+        return null;
+      }
+
+      const biggest = [...markers].sort((a, b) => getMarkerArea(b) - getMarkerArea(a))[0];
+      referenceMarkerId = biggest.id;
+      referenceMarkerLastSeenTs = now;
+      return biggest;
     }
 
     /******************************************************************
-     * 6) POSIT FÜR ACHSEN
+     * 7) POSIT FÜR ACHSEN
      ******************************************************************/
     function convertCornersForPosit(corners) {
       return corners.map(corner => ({
@@ -317,14 +348,15 @@
     }
 
     /******************************************************************
-     * 7) OVERLAY ZEICHNEN
+     * 8) OVERLAY ZEICHNEN
      ******************************************************************/
-    function drawMarkers(markers) {
+    function drawMarkers(markers, refMarkerId) {
       for (const marker of markers) {
         const corners = marker.corners;
+        const isRef = marker.id === refMarkerId;
 
-        ctx.strokeStyle = "#00ff00";
-        ctx.lineWidth = 3;
+        ctx.strokeStyle = isRef ? "#00ffff" : "#00ff00";
+        ctx.lineWidth = isRef ? 5 : 3;
         ctx.beginPath();
         ctx.moveTo(corners[0].x, corners[0].y);
 
@@ -335,77 +367,53 @@
         ctx.closePath();
         ctx.stroke();
 
-        ctx.fillStyle = "#00ff00";
+        ctx.fillStyle = isRef ? "#00ffff" : "#00ff00";
         ctx.beginPath();
         ctx.arc(corners[0].x, corners[0].y, 5, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.fillStyle = "#ff0000";
         ctx.font = "20px Arial";
-        ctx.fillText("ID: " + marker.id, corners[0].x, corners[0].y - 10);
+        ctx.fillText(
+          isRef ? `REF ID: ${marker.id}` : `ID: ${marker.id}`,
+          corners[0].x,
+          corners[0].y - 10
+        );
       }
     }
 
-    function drawCameraPoseText(cameraPose, visibleCount, estDistance) {
+    function drawCameraPoseText(cameraPose, refId, estDistance) {
       ctx.fillStyle = "yellow";
       ctx.font = "20px Arial";
       ctx.fillText(`Cam X: ${cameraPose.x.toFixed(2)} m`, 10, 30);
       ctx.fillText(`Cam Y: ${cameraPose.y.toFixed(2)} m`, 10, 60);
       ctx.fillText(`Cam Z: ${cameraPose.z.toFixed(2)} m`, 10, 90);
-      ctx.fillText(`Marker: ${visibleCount}`, 10, 120);
+      ctx.fillText(`Ref ID: ${refId ?? "-"}`, 10, 120);
       ctx.fillText(`Dist: ${estDistance.toFixed(2)} m`, 10, 150);
     }
 
     /******************************************************************
-     * 8) EINFACHE STABILE DEMO-POSITION
+     * 9) DEMO-POSE AUS GENAU EINEM REFERENZMARKER
      ******************************************************************/
-    function estimateCameraPoseFromVisibleMarkers(markers) {
-      if (!markers || markers.length === 0) return null;
+    function estimateCameraPoseFromReferenceMarker(marker) {
+      if (!marker) return null;
 
-      let totalWeight = 0;
-      let sumWorldX = 0;
-      let sumWorldY = 0;
-      let sumImgX = 0;
-      let sumImgY = 0;
-      let sumDist = 0;
+      const anchor = WORLD_MARKERS[marker.id];
+      if (!anchor) return null;
 
-      for (const marker of markers) {
-        const world = WORLD_MARKERS[marker.id];
-        if (!world) continue;
+      const center = getMarkerCenter(marker);
+      const pixelSize = getMarkerPixelSize(marker);
 
-        const center = getMarkerCenter(marker);
-        const pixelSize = getMarkerPixelSize(marker);
-        const area = getMarkerArea(marker);
-        const weight = Math.max(1, area);
+      if (pixelSize <= 1) return null;
 
-        sumWorldX += world.x * weight;
-        sumWorldY += world.y * weight;
-        sumImgX += center.x * weight;
-        sumImgY += center.y * weight;
-
-        if (pixelSize > 1) {
-          const distance = (FOCAL_LENGTH_PX * MARKER_SIZE) / pixelSize;
-          sumDist += distance * weight;
-        }
-
-        totalWeight += weight;
-      }
-
-      if (totalWeight <= 0) return null;
-
-      const anchorX = sumWorldX / totalWeight;
-      const anchorY = sumWorldY / totalWeight;
-      const imgCenterX = sumImgX / totalWeight;
-      const imgCenterY = sumImgY / totalWeight;
-      let distance = sumDist / totalWeight;
-
+      let distance = (FOCAL_LENGTH_PX * MARKER_SIZE) / pixelSize;
       distance = clamp(distance, MIN_DISTANCE, MAX_DISTANCE);
 
-      const normX = (imgCenterX - canvas.width / 2) / (canvas.width / 2);
-      const normY = (imgCenterY - canvas.height / 2) / (canvas.height / 2);
+      const normX = (center.x - canvas.width / 2) / (canvas.width / 2);
+      const normY = (center.y - canvas.height / 2) / (canvas.height / 2);
 
-      const camX = anchorX + normX * distance * IMAGE_TO_WORLD_GAIN_X;
-      const camY = anchorY + normY * distance * IMAGE_TO_WORLD_GAIN_Y;
+      const camX = anchor.x + normX * distance * IMAGE_TO_WORLD_GAIN_X;
+      const camY = anchor.y + normY * distance * IMAGE_TO_WORLD_GAIN_Y;
       const camZ = distance;
 
       return {
@@ -415,13 +423,13 @@
         yaw: 0,
         pitch: 0,
         roll: 0,
-        visibleCount: markers.length,
+        refId: marker.id,
         estDistance: distance
       };
     }
 
     /******************************************************************
-     * 9) AN VIEWER SENDEN
+     * 10) AN VIEWER SENDEN
      ******************************************************************/
     function sendCameraPoseToViewer(cameraPose) {
       if (!ws || ws.readyState !== WebSocket.OPEN || !cameraPose) return;
@@ -442,7 +450,7 @@
     }
 
     /******************************************************************
-     * 10) KAMERA START / STOP
+     * 11) KAMERA START / STOP
      ******************************************************************/
     async function startCamera() {
       try {
@@ -476,6 +484,9 @@
         await video.play();
 
         lastGoodPose = null;
+        referenceMarkerId = null;
+        referenceMarkerLastSeenTs = 0;
+
         statusEl.textContent = "Status: Kamera läuft";
         renderFrame();
 
@@ -499,16 +510,19 @@
 
       video.srcObject = null;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+
       lastGoodPose = null;
+      referenceMarkerId = null;
+      referenceMarkerLastSeenTs = 0;
+
       statusEl.textContent = "Status: Kamera gestoppt";
     }
 
     /******************************************************************
-     * 11) RENDER LOOP
+     * 12) RENDER LOOP
      ******************************************************************/
     function renderFrame() {
       if (video.readyState >= 2) {
-        // Arbeitsauflösung begrenzen
         if (canvas.width !== 640 || canvas.height !== 480) {
           canvas.width = 640;
           canvas.height = 480;
@@ -516,45 +530,41 @@
         }
 
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
         frameCounter++;
 
-        // Erkennung nur alle N Frames
         if (frameCounter % DETECTION_EVERY_N_FRAMES === 0) {
           const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
           const detectedMarkers = detector.detect(imageData);
 
-          let validMarkers = dedupeMarkersByLargestArea(detectedMarkers);
-          let poseMarkers = takeLargestMarkers(validMarkers, 2);
+          const validMarkers = dedupeMarkersByLargestArea(detectedMarkers);
+          const refMarker = chooseReferenceMarker(validMarkers);
 
           lastMarkers = validMarkers;
 
-          // Marker zeichnen
-          drawMarkers(validMarkers);
+          drawMarkers(validMarkers, refMarker ? refMarker.id : null);
 
-          // Achsen nur für größten Marker
-          if (poseMarkers.length > 0) {
-            const pose = estimateMarkerPose(poseMarkers[0]);
+          // Achsen nur für Referenzmarker
+          if (refMarker) {
+            const pose = estimateMarkerPose(refMarker);
             if (pose) {
               drawAxes(pose.rotation, pose.translation);
             }
           }
 
-          // Pose nur aus den 2 größten
-          const cameraPose = estimateCameraPoseFromVisibleMarkers(poseMarkers);
+          const cameraPose = estimateCameraPoseFromReferenceMarker(refMarker);
 
           if (cameraPose) {
-            drawCameraPoseText(cameraPose, cameraPose.visibleCount, cameraPose.estDistance);
+            drawCameraPoseText(cameraPose, cameraPose.refId, cameraPose.estDistance);
             sendCameraPoseToViewer(cameraPose);
             statusEl.textContent =
-              `Status: Kamera läuft – ${validMarkers.length} gültige Marker`;
+              `Status: Kamera läuft – ${validMarkers.length} Marker – Ref ${cameraPose.refId}`;
           } else {
             statusEl.textContent =
               `Status: Kamera läuft – keine stabile Pose`;
           }
         } else {
-          // Zwischenframes: nur letztes Overlay grob weiterzeichnen
-          drawMarkers(lastMarkers);
+          const refMarker = lastMarkers.find(m => m.id === referenceMarkerId) || null;
+          drawMarkers(lastMarkers, refMarker ? refMarker.id : null);
         }
       }
 
@@ -562,7 +572,7 @@
     }
 
     /******************************************************************
-     * 12) BUTTONS
+     * 13) BUTTONS
      ******************************************************************/
     startCameraBtn.addEventListener("click", startCamera);
     stopCameraBtn.addEventListener("click", stopCamera);
