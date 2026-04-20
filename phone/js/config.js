@@ -51,7 +51,7 @@ export const DETECTION_EVERY_N_FRAMES = 2;
  * Näherungswert für Distanz aus Markergröße in Pixeln.
  * Später feinjustierbar.
  */
-export const FOCAL_LENGTH_PX = 1400;
+export const FOCAL_LENGTH_PX = 900;
 
 /**
  * WebSocket-URL.
