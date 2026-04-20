@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AruCo Phone</title>
+  <link rel="stylesheet" href="./css/phone.css" />
+</head>
+<body>
+  <h1>AruCo Phone</h1>
+
+  <div class="phone-layout">
+    <div class="panel panel-left">
+      <h2>Steuerung</h2>
+
+      <div class="button-row">
+        <button id="startCameraBtn">Kamera starten</button>
+        <button id="stopCameraBtn">Kamera stoppen</button>
+      </div>
+
+      <div class="info-box">
+        <p>Status: <span id="statusValue">Bereit</span></p>
+        <p>Referenz-ID: <span id="referenceIdValue">-</span></p>
+        <p>Distanz: <span id="distanceValue">-</span> m</p>
+      </div>
+
+      <div class="info-box">
+        <p><strong>Interpretation</strong></p>
+        <p>
+          Diese Seite zeigt live:
+          Marker-Erkennung, Marker-ID und Achsen direkt am Marker.
+        </p>
+        <p>
+          Später kommt hier die getrennte Tracking- und Sendelogik dazu.
+        </p>
+      </div>
+    </div>
+
+    <div class="panel panel-right">
+      <h2>Kamera / Overlay</h2>
+
+      <div class="canvas-wrapper">
+        <!-- Video bleibt technisch die Quelle, wird aber ausgeblendet -->
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="canvas" width="640" height="480"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Die Bibliothek laden wir direkt hier ein, damit spätere Module sie nutzen können -->
+  <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/posit1.js"></script>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
