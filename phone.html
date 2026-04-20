@@ -25,6 +25,32 @@
       color: #555;
     }
 
+    .control-box {
+      margin-top: 14px;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      background: #fafafa;
+    }
+
+    .control-box label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: bold;
+    }
+
+    .control-box select,
+    .control-box input[type="range"] {
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .control-box p {
+      margin: 8px 0 0 0;
+      font-size: 14px;
+      color: #444;
+    }
+
     canvas {
       width: 100%;
       max-width: 520px;
@@ -35,6 +61,10 @@
     }
 
     video {
+      display: none;
+    }
+
+    .hidden {
       display: none;
     }
   </style>
@@ -55,9 +85,23 @@
 
     <p id="status">Status: bereit</p>
     <p class="small">
-      Oben links siehst du nur die Kamerawerte.  
+      Oben links siehst du nur die Kamerawerte.
       Direkt am Marker sieht man Rahmen, ID und die X/Y/Z-Achsen.
     </p>
+
+    <div class="control-box">
+      <label for="cameraSelect">Kamera auswählen</label>
+      <select id="cameraSelect" disabled>
+        <option>Erst Kamera starten…</option>
+      </select>
+      <p id="cameraInfo">Noch keine Kamera ausgewählt.</p>
+    </div>
+
+    <div class="control-box">
+      <label for="zoomSlider">Zoom</label>
+      <input id="zoomSlider" type="range" min="1" max="1" step="0.1" value="1" disabled />
+      <p id="zoomInfo">Zoom nicht verfügbar.</p>
+    </div>
 
     <div class="video-wrapper">
       <video id="video" autoplay playsinline muted></video>
@@ -75,62 +119,32 @@
     /******************************************************************
      * 1) EINSTELLBARE PARAMETER
      ******************************************************************/
-
-    // Reale Markergröße
-    const MARKER_SIZE = 0.10; // 10 cm
-
-    // Abstand der Marker-Mittelpunkte
+    const MARKER_SIZE = 0.10;      // 10 cm
     const MARKER_SPACING_X = 0.80; // 80 cm
     const MARKER_SPACING_Y = 0.60; // 60 cm
-
-    // WSS-Adresse deines Servers
     const WS_URL = "wss://scaling-chainsaw-x5g5r9gj575pfppwq-8080.app.github.dev/";
 
-    /*
-      Fokallänge in Pixeln für Distanzschätzung.
-      Das ist ein Demo-Kalibrierwert.
-      Wenn Z später noch zu klein / zu groß ist, DIESEN Wert anpassen.
-
-      Faustregel:
-      - Z zu klein  -> FOCAL_LENGTH_PX erhöhen
-      - Z zu groß   -> FOCAL_LENGTH_PX verringern
-    */
+    // Distanzschätzung aus Markergröße im Bild
     const FOCAL_LENGTH_PX = 1100;
 
-    /*
-      Wie stark Bildoffset in Weltbewegung übersetzt wird.
-      Damit steuerst du, wie empfindlich links/rechts/oben/unten reagiert.
-    */
+    // Wie stark Bildoffset in Weltbewegung übersetzt wird
     const IMAGE_TO_WORLD_GAIN_X = 0.90;
     const IMAGE_TO_WORLD_GAIN_Y = 0.75;
 
-    /*
-      Glättung:
-      0.0 = keine Glättung
-      1.0 = extrem träge
-    */
+    // Glättung
     const SMOOTHING = 0.25;
 
-    /*
-      Distanzgrenzen für die Demo
-    */
+    // Distanzgrenzen
     const MIN_DISTANCE = 0.20;
     const MAX_DISTANCE = 4.00;
 
-    /*
-      Achsenlänge für die Marker-Visualisierung
-    */
+    // Achsenlänge im Overlay
     const AXIS_LENGTH_METERS = 0.06;
 
-    /*
-      Nur diese Marker werden als gültige Wandmarker verwendet
-    */
     const VALID_IDS = new Set([0, 1, 2, 3]);
 
     /******************************************************************
      * 2) WELTGEOMETRIE
-     * ---------------------------------------------------------------
-     * Diese Positionen müssen exakt zum Viewer passen.
      ******************************************************************/
     const WORLD_MARKERS = {
       0: { x: 0.6, y: 1.5, z: 0.0 }, // oben links
@@ -145,6 +159,13 @@
     const startCameraBtn = document.getElementById("startCameraBtn");
     const stopCameraBtn = document.getElementById("stopCameraBtn");
     const statusEl = document.getElementById("status");
+
+    const cameraSelect = document.getElementById("cameraSelect");
+    const cameraInfo = document.getElementById("cameraInfo");
+
+    const zoomSlider = document.getElementById("zoomSlider");
+    const zoomInfo = document.getElementById("zoomInfo");
+
     const video = document.getElementById("video");
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
@@ -153,10 +174,14 @@
      * 4) GLOBALE VARIABLEN
      ******************************************************************/
     let stream = null;
+    let currentVideoTrack = null;
     let animationId = null;
     let posit = null;
     let ws = null;
     let smoothedPose = null;
+
+    let availableVideoDevices = [];
+    let currentDeviceId = null;
 
     const detector = new AR.Detector({
       dictionaryName: "ARUCO"
@@ -228,11 +253,44 @@
       return (d1 + d2 + d3 + d4) / 4;
     }
 
+    function getMarkerArea(marker) {
+      const corners = marker.corners;
+      let area = 0;
+
+      for (let i = 0; i < corners.length; i++) {
+        const j = (i + 1) % corners.length;
+        area += corners[i].x * corners[j].y;
+        area -= corners[j].x * corners[i].y;
+      }
+
+      return Math.abs(area / 2);
+    }
+
     /******************************************************************
-     * 7) POSIT FÜR ACHSEN
+     * 7) DOPPELTE IDS FILTERN
      * ---------------------------------------------------------------
-     * Für die Raumposition nutzen wir POSIT NICHT mehr direkt.
-     * Aber für die Achsen am Marker ist es weiter nützlich.
+     * Wenn dieselbe ID in einem Frame mehrfach erkannt wird,
+     * behalten wir nur den Marker mit der größten Fläche.
+     ******************************************************************/
+    function dedupeMarkersByLargestArea(markers) {
+      const bestById = new Map();
+
+      for (const marker of markers) {
+        if (!VALID_IDS.has(marker.id)) continue;
+
+        const area = getMarkerArea(marker);
+        const existing = bestById.get(marker.id);
+
+        if (!existing || area > existing.area) {
+          bestById.set(marker.id, { marker, area });
+        }
+      }
+
+      return Array.from(bestById.values()).map(entry => entry.marker);
+    }
+
+    /******************************************************************
+     * 8) POSIT FÜR ACHSEN
      ******************************************************************/
     function convertCornersForPosit(corners) {
       return corners.map(corner => ({
@@ -259,7 +317,7 @@
     }
 
     /******************************************************************
-     * 8) 3D-PUNKT INS BILD PROJIZIEREN
+     * 9) 3D-PUNKT INS BILD PROJIZIEREN
      * ---------------------------------------------------------------
      * Nur für die X/Y/Z-Linien am Marker.
      ******************************************************************/
@@ -321,7 +379,7 @@
     }
 
     /******************************************************************
-     * 9) MARKER ZEICHNEN
+     * 10) MARKER ZEICHNEN
      ******************************************************************/
     function drawMarkers(markers) {
       for (const marker of markers) {
@@ -351,7 +409,7 @@
     }
 
     /******************************************************************
-     * 10) KAMERAWERTE IM BILD
+     * 11) KAMERAWERTE IM BILD
      ******************************************************************/
     function drawCameraPoseText(cameraPose, visibleCount, estDistance) {
       ctx.fillStyle = "yellow";
@@ -364,18 +422,7 @@
     }
 
     /******************************************************************
-     * 11) STABILE BOARD-BASIERTE DEMO-LOGIK
-     * ---------------------------------------------------------------
-     * Diese Logik nutzt:
-     * - sichtbare Marker-IDs
-     * - Mittelwert ihrer Weltpositionen
-     * - Mittelwert ihrer Bildpositionen
-     * - Distanz aus Markergröße in Pixeln
-     *
-     * Dadurch gilt:
-     * - Stehst du mittig vor allen sichtbaren Markern, landest du
-     *   auch mittig im 3D-Raum
-     * - Mit nur einem Marker landest du vor genau diesem Marker
+     * 12) STABILE BOARD-BASIERTE DEMO-LOGIK
      ******************************************************************/
     function estimateCameraPoseFromVisibleMarkers(markers) {
       if (!markers || markers.length === 0) return null;
@@ -400,7 +447,6 @@
         sumImgY += center.y;
 
         if (pixelSize > 1) {
-          // Distanzschätzung aus Markergröße im Bild
           const distance = (FOCAL_LENGTH_PX * MARKER_SIZE) / pixelSize;
           sumDist += distance;
           distCount++;
@@ -416,17 +462,9 @@
       let distance = distCount > 0 ? (sumDist / distCount) : 1.0;
       distance = clamp(distance, MIN_DISTANCE, MAX_DISTANCE);
 
-      // Bildoffset relativ zur Bildmitte
       const normX = (imgCenterX - canvas.width / 2) / (canvas.width / 2);
       const normY = (imgCenterY - canvas.height / 2) / (canvas.height / 2);
 
-      /*
-        Interpretation:
-        - Markergruppe links im Bild -> Kamera ist eher rechts der Markergruppe
-        - Markergruppe rechts im Bild -> Kamera ist eher links der Markergruppe
-        - Markergruppe oben im Bild -> Kamera ist eher höher
-        - Markergruppe unten im Bild -> Kamera ist eher tiefer
-      */
       const camX = anchorX - normX * distance * IMAGE_TO_WORLD_GAIN_X;
       const camY = anchorY + normY * distance * IMAGE_TO_WORLD_GAIN_Y;
       const camZ = distance;
@@ -444,7 +482,7 @@
     }
 
     /******************************************************************
-     * 12) AN VIEWER SENDEN
+     * 13) AN VIEWER SENDEN
      ******************************************************************/
     function sendCameraPoseToViewer(cameraPose) {
       if (!ws || ws.readyState !== WebSocket.OPEN || !cameraPose) return;
@@ -465,7 +503,207 @@
     }
 
     /******************************************************************
-     * 13) FRAME-VERARBEITUNG
+     * 14) KAMERALISTE LADEN
+     ******************************************************************/
+    async function refreshCameraList() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        availableVideoDevices = devices.filter(d => d.kind === "videoinput");
+
+        cameraSelect.innerHTML = "";
+
+        if (availableVideoDevices.length === 0) {
+          const option = document.createElement("option");
+          option.textContent = "Keine Kamera gefunden";
+          cameraSelect.appendChild(option);
+          cameraSelect.disabled = true;
+          return;
+        }
+
+        availableVideoDevices.forEach((device, index) => {
+          const option = document.createElement("option");
+          option.value = device.deviceId;
+          option.textContent = device.label || `Kamera ${index + 1}`;
+          cameraSelect.appendChild(option);
+        });
+
+        cameraSelect.disabled = false;
+
+        // Rückkamera bevorzugen, falls erkennbar
+        const preferred =
+          availableVideoDevices.find(d => /back|rear|environment|wide|ultra/i.test(d.label)) ||
+          availableVideoDevices[availableVideoDevices.length - 1];
+
+        if (preferred) {
+          cameraSelect.value = preferred.deviceId;
+          currentDeviceId = preferred.deviceId;
+          cameraInfo.textContent = `Ausgewählt: ${preferred.label || "Unbekannte Kamera"}`;
+        }
+      } catch (error) {
+        console.error("Fehler beim Laden der Kameraliste:", error);
+        cameraInfo.textContent = "Fehler beim Laden der Kameras.";
+      }
+    }
+
+    /******************************************************************
+     * 15) ZOOM-FUNKTION
+     ******************************************************************/
+    function setupZoomControls() {
+      if (!currentVideoTrack) {
+        zoomSlider.disabled = true;
+        zoomInfo.textContent = "Zoom nicht verfügbar.";
+        return;
+      }
+
+      const capabilities = currentVideoTrack.getCapabilities
+        ? currentVideoTrack.getCapabilities()
+        : null;
+
+      if (!capabilities || !capabilities.zoom) {
+        zoomSlider.disabled = true;
+        zoomInfo.textContent = "Zoom von dieser Kamera nicht unterstützt.";
+        return;
+      }
+
+      const min = capabilities.zoom.min;
+      const max = capabilities.zoom.max;
+      const step = capabilities.zoom.step || 0.1;
+
+      zoomSlider.min = String(min);
+      zoomSlider.max = String(max);
+      zoomSlider.step = String(step);
+
+      const settings = currentVideoTrack.getSettings ? currentVideoTrack.getSettings() : {};
+      const currentZoom = settings.zoom || min;
+
+      zoomSlider.value = String(currentZoom);
+      zoomSlider.disabled = false;
+      zoomInfo.textContent = `Zoom verfügbar: ${min} bis ${max}`;
+    }
+
+    async function applyZoom(value) {
+      if (!currentVideoTrack || !currentVideoTrack.applyConstraints) return;
+
+      try {
+        await currentVideoTrack.applyConstraints({
+          advanced: [{ zoom: Number(value) }]
+        });
+        zoomInfo.textContent = `Zoom aktiv: ${Number(value).toFixed(1)}`;
+      } catch (error) {
+        console.error("Fehler beim Setzen des Zooms:", error);
+        zoomInfo.textContent = "Zoom konnte nicht gesetzt werden.";
+      }
+    }
+
+    zoomSlider.addEventListener("input", () => {
+      applyZoom(zoomSlider.value);
+    });
+
+    /******************************************************************
+     * 16) KAMERA STARTEN / WECHSELN
+     ******************************************************************/
+    async function startCamera(deviceId = null) {
+      try {
+        statusEl.textContent = "Status: Kamera wird gestartet...";
+
+        if (!ws || ws.readyState > 1) {
+          connectSocket();
+        }
+
+        if (stream) {
+          const tracks = stream.getTracks();
+          tracks.forEach(track => track.stop());
+          stream = null;
+        }
+
+        const constraints = deviceId
+          ? {
+              video: {
+                deviceId: { exact: deviceId },
+                width: { ideal: 1920 },
+                height: { ideal: 1080 }
+              },
+              audio: false
+            }
+          : {
+              video: {
+                facingMode: { ideal: "environment" },
+                width: { ideal: 1920 },
+                height: { ideal: 1080 }
+              },
+              audio: false
+            };
+
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+        await video.play();
+
+        currentVideoTrack = stream.getVideoTracks()[0];
+        const settings = currentVideoTrack.getSettings ? currentVideoTrack.getSettings() : {};
+
+        currentDeviceId = settings.deviceId || deviceId || null;
+
+        // Nach erfolgreichem Start Geräte neu laden, damit Labels sichtbar werden
+        await refreshCameraList();
+
+        if (currentDeviceId) {
+          cameraSelect.value = currentDeviceId;
+        }
+
+        cameraInfo.textContent =
+          `Aktive Kamera: ${currentVideoTrack.label || "Unbekannte Kamera"}`;
+
+        setupZoomControls();
+
+        statusEl.textContent = "Status: Kamera läuft";
+        renderFrame();
+
+      } catch (error) {
+        console.error("Fehler beim Starten der Kamera:", error);
+        statusEl.textContent = "Status: Kamerafehler";
+      }
+    }
+
+    async function switchCamera(deviceId) {
+      if (!deviceId) return;
+
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+      }
+
+      await startCamera(deviceId);
+    }
+
+    cameraSelect.addEventListener("change", async () => {
+      const deviceId = cameraSelect.value;
+      cameraInfo.textContent = "Kamera wird gewechselt...";
+      await switchCamera(deviceId);
+    });
+
+    function stopCamera() {
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+      }
+
+      if (stream) {
+        const tracks = stream.getTracks();
+        tracks.forEach(track => track.stop());
+        stream = null;
+      }
+
+      currentVideoTrack = null;
+      video.srcObject = null;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      zoomSlider.disabled = true;
+      zoomInfo.textContent = "Zoom nicht verfügbar.";
+      statusEl.textContent = "Status: Kamera gestoppt";
+    }
+
+    /******************************************************************
+     * 17) FRAME-VERARBEITUNG
      ******************************************************************/
     function renderFrame() {
       if (video.readyState >= 2) {
@@ -479,11 +717,13 @@
 
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const detectedMarkers = detector.detect(imageData);
-        const validMarkers = detectedMarkers.filter(marker => VALID_IDS.has(marker.id));
+
+        // Doppelte IDs filtern
+        const validMarkers = dedupeMarkersByLargestArea(detectedMarkers);
 
         drawMarkers(validMarkers);
 
-        // Achsen pro Marker einzeichnen
+        // Achsen pro Marker
         for (const marker of validMarkers) {
           const pose = estimateMarkerPose(marker);
           if (pose) {
@@ -491,7 +731,7 @@
           }
         }
 
-        // Raumposition nur aus Markergruppe + Bildlage + Markergröße schätzen
+        // Raumposition aus Markergruppe
         const cameraPose = estimateCameraPoseFromVisibleMarkers(validMarkers);
 
         if (cameraPose) {
@@ -510,57 +750,12 @@
     }
 
     /******************************************************************
-     * 14) KAMERA STARTEN / STOPPEN
+     * 18) BUTTONS
      ******************************************************************/
-    async function startCamera() {
-      try {
-        statusEl.textContent = "Status: Kamera wird gestartet...";
+    startCameraBtn.addEventListener("click", async () => {
+      await startCamera(currentDeviceId);
+    });
 
-        if (!ws || ws.readyState > 1) {
-          connectSocket();
-        }
-
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          },
-          audio: false
-        });
-
-        video.srcObject = stream;
-        await video.play();
-
-        statusEl.textContent = "Status: Kamera läuft";
-        renderFrame();
-      } catch (error) {
-        console.error("Fehler beim Starten der Kamera:", error);
-        statusEl.textContent = "Status: Kamerafehler";
-      }
-    }
-
-    function stopCamera() {
-      if (animationId) {
-        cancelAnimationFrame(animationId);
-        animationId = null;
-      }
-
-      if (stream) {
-        const tracks = stream.getTracks();
-        tracks.forEach(track => track.stop());
-        stream = null;
-      }
-
-      video.srcObject = null;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      statusEl.textContent = "Status: Kamera gestoppt";
-    }
-
-    /******************************************************************
-     * 15) BUTTONS
-     ******************************************************************/
-    startCameraBtn.addEventListener("click", startCamera);
     stopCameraBtn.addEventListener("click", stopCamera);
   </script>
 </body>
