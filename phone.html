@@ -63,10 +63,6 @@
     video {
       display: none;
     }
-
-    .hidden {
-      display: none;
-    }
   </style>
 </head>
 <body>
@@ -75,7 +71,7 @@
   <div class="panel">
     <p>
       Diese Seite erkennt ArUco-Marker, zeichnet Achsen ein und berechnet
-      eine stabile Demo-Kameraposition relativ zur Marker-Wand.
+      eine stabilisierte Demo-Kameraposition relativ zur Marker-Wand.
     </p>
 
     <div class="button-row">
@@ -85,8 +81,8 @@
 
     <p id="status">Status: bereit</p>
     <p class="small">
-      Oben links siehst du nur die Kamerawerte.
-      Direkt am Marker sieht man Rahmen, ID und die X/Y/Z-Achsen.
+      Oben links stehen nur die Kamerawerte.  
+      Direkt am Marker siehst du Rahmen, ID und die X/Y/Z-Achsen.
     </p>
 
     <div class="control-box">
@@ -109,7 +105,6 @@
     </div>
   </div>
 
-  <!-- js-aruco2 -->
   <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
@@ -120,31 +115,38 @@
      * 1) EINSTELLBARE PARAMETER
      ******************************************************************/
     const MARKER_SIZE = 0.10;      // 10 cm
-    const MARKER_SPACING_X = 0.80; // 80 cm
-    const MARKER_SPACING_Y = 0.60; // 60 cm
-    const WS_URL = "wss://scaling-chainsaw-x5g5r9gj575pfppwq-8080.app.github.dev/";
+    const WS_URL = "WSS_URL_HIER_EINTRAGEN";
 
     // Distanzschätzung aus Markergröße im Bild
     const FOCAL_LENGTH_PX = 1100;
 
     // Wie stark Bildoffset in Weltbewegung übersetzt wird
-    const IMAGE_TO_WORLD_GAIN_X = 0.90;
-    const IMAGE_TO_WORLD_GAIN_Y = 0.75;
+    const IMAGE_TO_WORLD_GAIN_X = 1.15;
+    const IMAGE_TO_WORLD_GAIN_Y = 0.85;
 
     // Glättung
-    const SMOOTHING = 0.25;
+    const SMOOTHING = 0.22;
 
     // Distanzgrenzen
     const MIN_DISTANCE = 0.20;
     const MAX_DISTANCE = 4.00;
 
-    // Achsenlänge im Overlay
+    // Achsenlänge am Marker
     const AXIS_LENGTH_METERS = 0.06;
 
+    // Nur diese Marker gelten
     const VALID_IDS = new Set([0, 1, 2, 3]);
+
+    // Tracking verloren nach X Millisekunden ohne Marker
+    const TRACK_LOST_MS = 250;
+
+    // Pose nur alle X Millisekunden neu rechnen, damit es ruhiger läuft
+    const POSE_INTERVAL_MS = 70;
 
     /******************************************************************
      * 2) WELTGEOMETRIE
+     * ---------------------------------------------------------------
+     * Muss exakt zum Viewer passen.
      ******************************************************************/
     const WORLD_MARKERS = {
       0: { x: 0.6, y: 1.5, z: 0.0 }, // oben links
@@ -183,6 +185,11 @@
     let availableVideoDevices = [];
     let currentDeviceId = null;
 
+    let lastGoodPose = null;
+    let lastSeenMarkerTs = 0;
+    let hadTracking = false;
+    let lastPoseComputeTs = 0;
+
     const detector = new AR.Detector({
       dictionaryName: "ARUCO"
     });
@@ -207,6 +214,10 @@
 
     function lerp(a, b, t) {
       return a + (b - a) * t;
+    }
+
+    function resetSmoothing(pose) {
+      smoothedPose = pose ? { ...pose } : null;
     }
 
     function smoothPose(newPose) {
@@ -269,8 +280,7 @@
     /******************************************************************
      * 7) DOPPELTE IDS FILTERN
      * ---------------------------------------------------------------
-     * Wenn dieselbe ID in einem Frame mehrfach erkannt wird,
-     * behalten wir nur den Marker mit der größten Fläche.
+     * Pro ID bleibt nur der Marker mit der größten Fläche.
      ******************************************************************/
     function dedupeMarkersByLargestArea(markers) {
       const bestById = new Map();
@@ -290,7 +300,18 @@
     }
 
     /******************************************************************
-     * 8) POSIT FÜR ACHSEN
+     * 8) NUR DIE 2 GRÖSSTEN MARKER NUTZEN
+     * ---------------------------------------------------------------
+     * Das macht die Schätzung stabiler, als alle Marker blind zu mitteln.
+     ******************************************************************/
+    function takeLargestMarkers(markers, maxCount = 2) {
+      return [...markers]
+        .sort((a, b) => getMarkerArea(b) - getMarkerArea(a))
+        .slice(0, maxCount);
+    }
+
+    /******************************************************************
+     * 9) POSIT FÜR ACHSEN
      ******************************************************************/
     function convertCornersForPosit(corners) {
       return corners.map(corner => ({
@@ -317,7 +338,7 @@
     }
 
     /******************************************************************
-     * 9) 3D-PUNKT INS BILD PROJIZIEREN
+     * 10) 3D-PUNKT INS BILD PROJIZIEREN
      * ---------------------------------------------------------------
      * Nur für die X/Y/Z-Linien am Marker.
      ******************************************************************/
@@ -379,7 +400,7 @@
     }
 
     /******************************************************************
-     * 10) MARKER ZEICHNEN
+     * 11) MARKER ZEICHNEN
      ******************************************************************/
     function drawMarkers(markers) {
       for (const marker of markers) {
@@ -409,7 +430,7 @@
     }
 
     /******************************************************************
-     * 11) KAMERAWERTE IM BILD
+     * 12) KAMERAWERTE IM BILD
      ******************************************************************/
     function drawCameraPoseText(cameraPose, visibleCount, estDistance) {
       ctx.fillStyle = "yellow";
@@ -422,17 +443,22 @@
     }
 
     /******************************************************************
-     * 12) STABILE BOARD-BASIERTE DEMO-LOGIK
+     * 13) STABILE BOARD-BASIERTE DEMO-LOGIK
+     * ---------------------------------------------------------------
+     * Wichtige Änderungen:
+     * - X links/rechts wurde gedreht
+     * - nur die größten Marker zählen
+     * - nach Trackingverlust wird nicht weich weitergerechnet
      ******************************************************************/
     function estimateCameraPoseFromVisibleMarkers(markers) {
       if (!markers || markers.length === 0) return null;
 
+      let totalWeight = 0;
       let sumWorldX = 0;
       let sumWorldY = 0;
       let sumImgX = 0;
       let sumImgY = 0;
       let sumDist = 0;
-      let distCount = 0;
 
       for (const marker of markers) {
         const world = WORLD_MARKERS[marker.id];
@@ -440,32 +466,42 @@
 
         const center = getMarkerCenter(marker);
         const pixelSize = getMarkerPixelSize(marker);
+        const area = getMarkerArea(marker);
 
-        sumWorldX += world.x;
-        sumWorldY += world.y;
-        sumImgX += center.x;
-        sumImgY += center.y;
+        const weight = Math.max(1, area);
+
+        sumWorldX += world.x * weight;
+        sumWorldY += world.y * weight;
+        sumImgX += center.x * weight;
+        sumImgY += center.y * weight;
 
         if (pixelSize > 1) {
           const distance = (FOCAL_LENGTH_PX * MARKER_SIZE) / pixelSize;
-          sumDist += distance;
-          distCount++;
+          sumDist += distance * weight;
         }
+
+        totalWeight += weight;
       }
 
-      const visibleCount = markers.length;
-      const anchorX = sumWorldX / visibleCount;
-      const anchorY = sumWorldY / visibleCount;
-      const imgCenterX = sumImgX / visibleCount;
-      const imgCenterY = sumImgY / visibleCount;
+      if (totalWeight <= 0) return null;
 
-      let distance = distCount > 0 ? (sumDist / distCount) : 1.0;
+      const anchorX = sumWorldX / totalWeight;
+      const anchorY = sumWorldY / totalWeight;
+      const imgCenterX = sumImgX / totalWeight;
+      const imgCenterY = sumImgY / totalWeight;
+
+      let distance = sumDist / totalWeight;
       distance = clamp(distance, MIN_DISTANCE, MAX_DISTANCE);
 
       const normX = (imgCenterX - canvas.width / 2) / (canvas.width / 2);
       const normY = (imgCenterY - canvas.height / 2) / (canvas.height / 2);
 
-      const camX = anchorX - normX * distance * IMAGE_TO_WORLD_GAIN_X;
+      /*
+        FIX:
+        Vorher war links/rechts teils falsch herum.
+        Jetzt wird X explizit umgedreht.
+      */
+      const camX = anchorX + normX * distance * IMAGE_TO_WORLD_GAIN_X;
       const camY = anchorY + normY * distance * IMAGE_TO_WORLD_GAIN_Y;
       const camZ = distance;
 
@@ -476,18 +512,19 @@
         yaw: 0,
         pitch: 0,
         roll: 0,
-        visibleCount,
+        visibleCount: markers.length,
         estDistance: distance
       };
     }
 
     /******************************************************************
-     * 13) AN VIEWER SENDEN
+     * 14) AN VIEWER SENDEN
      ******************************************************************/
     function sendCameraPoseToViewer(cameraPose) {
       if (!ws || ws.readyState !== WebSocket.OPEN || !cameraPose) return;
 
       const stablePose = smoothPose(cameraPose);
+      lastGoodPose = { ...stablePose };
 
       ws.send(JSON.stringify({
         type: "pose",
@@ -503,7 +540,7 @@
     }
 
     /******************************************************************
-     * 14) KAMERALISTE LADEN
+     * 15) KAMERALISTE LADEN
      ******************************************************************/
     async function refreshCameraList() {
       try {
@@ -529,7 +566,6 @@
 
         cameraSelect.disabled = false;
 
-        // Rückkamera bevorzugen, falls erkennbar
         const preferred =
           availableVideoDevices.find(d => /back|rear|environment|wide|ultra/i.test(d.label)) ||
           availableVideoDevices[availableVideoDevices.length - 1];
@@ -546,7 +582,7 @@
     }
 
     /******************************************************************
-     * 15) ZOOM-FUNKTION
+     * 16) ZOOM
      ******************************************************************/
     function setupZoomControls() {
       if (!currentVideoTrack) {
@@ -600,7 +636,7 @@
     });
 
     /******************************************************************
-     * 16) KAMERA STARTEN / WECHSELN
+     * 17) KAMERA STARTEN / WECHSELN
      ******************************************************************/
     async function startCamera(deviceId = null) {
       try {
@@ -616,20 +652,25 @@
           stream = null;
         }
 
+        if (animationId) {
+          cancelAnimationFrame(animationId);
+          animationId = null;
+        }
+
         const constraints = deviceId
           ? {
               video: {
                 deviceId: { exact: deviceId },
-                width: { ideal: 1920 },
-                height: { ideal: 1080 }
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
               },
               audio: false
             }
           : {
               video: {
                 facingMode: { ideal: "environment" },
-                width: { ideal: 1920 },
-                height: { ideal: 1080 }
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
               },
               audio: false
             };
@@ -640,10 +681,8 @@
 
         currentVideoTrack = stream.getVideoTracks()[0];
         const settings = currentVideoTrack.getSettings ? currentVideoTrack.getSettings() : {};
-
         currentDeviceId = settings.deviceId || deviceId || null;
 
-        // Nach erfolgreichem Start Geräte neu laden, damit Labels sichtbar werden
         await refreshCameraList();
 
         if (currentDeviceId) {
@@ -654,6 +693,12 @@
           `Aktive Kamera: ${currentVideoTrack.label || "Unbekannte Kamera"}`;
 
         setupZoomControls();
+
+        // Tracking-Zustand zurücksetzen
+        lastGoodPose = null;
+        lastSeenMarkerTs = 0;
+        hadTracking = false;
+        resetSmoothing(null);
 
         statusEl.textContent = "Status: Kamera läuft";
         renderFrame();
@@ -666,12 +711,6 @@
 
     async function switchCamera(deviceId) {
       if (!deviceId) return;
-
-      if (animationId) {
-        cancelAnimationFrame(animationId);
-        animationId = null;
-      }
-
       await startCamera(deviceId);
     }
 
@@ -699,11 +738,16 @@
 
       zoomSlider.disabled = true;
       zoomInfo.textContent = "Zoom nicht verfügbar.";
+
+      lastGoodPose = null;
+      hadTracking = false;
+      resetSmoothing(null);
+
       statusEl.textContent = "Status: Kamera gestoppt";
     }
 
     /******************************************************************
-     * 17) FRAME-VERARBEITUNG
+     * 18) FRAME-VERARBEITUNG
      ******************************************************************/
     function renderFrame() {
       if (video.readyState >= 2) {
@@ -713,33 +757,68 @@
           posit = new POS.Posit(MARKER_SIZE, canvas.width);
         }
 
+        // Bild anzeigen
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
+        // Markererkennung immer
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const detectedMarkers = detector.detect(imageData);
 
-        // Doppelte IDs filtern
-        const validMarkers = dedupeMarkersByLargestArea(detectedMarkers);
+        // IDs filtern und doppelte IDs pro Frame bereinigen
+        let validMarkers = dedupeMarkersByLargestArea(detectedMarkers);
 
+        // Nur die 2 größten Marker für Pose nutzen
+        const poseMarkers = takeLargestMarkers(validMarkers, 2);
+
+        // Zeichnen aller validen Marker
         drawMarkers(validMarkers);
 
-        // Achsen pro Marker
-        for (const marker of validMarkers) {
+        // Achsen nur für Pose-Marker
+        for (const marker of poseMarkers) {
           const pose = estimateMarkerPose(marker);
           if (pose) {
             drawAxes(pose.rotation, pose.translation);
           }
         }
 
-        // Raumposition aus Markergruppe
-        const cameraPose = estimateCameraPoseFromVisibleMarkers(validMarkers);
+        const now = performance.now();
+
+        // Tracking-Zustand
+        if (poseMarkers.length > 0) {
+          lastSeenMarkerTs = now;
+
+          // nach Trackingverlust neu initialisieren
+          if (!hadTracking) {
+            resetSmoothing(null);
+          }
+          hadTracking = true;
+        } else {
+          if (now - lastSeenMarkerTs > TRACK_LOST_MS) {
+            hadTracking = false;
+            lastGoodPose = null;
+            resetSmoothing(null);
+          }
+        }
+
+        // Pose nicht jedes Frame neu berechnen -> ruhiger
+        let cameraPose = null;
+
+        if (poseMarkers.length > 0 && (now - lastPoseComputeTs >= POSE_INTERVAL_MS)) {
+          lastPoseComputeTs = now;
+          cameraPose = estimateCameraPoseFromVisibleMarkers(poseMarkers);
+        }
 
         if (cameraPose) {
           drawCameraPoseText(cameraPose, cameraPose.visibleCount, cameraPose.estDistance);
           sendCameraPoseToViewer(cameraPose);
 
           statusEl.textContent =
-            `Status: Kamera läuft – ${validMarkers.length} gültige Marker – Board-Tracking aktiv`;
+            `Status: Kamera läuft – ${validMarkers.length} gültige Marker – ${poseMarkers.length} für Pose`;
+        } else if (lastGoodPose && hadTracking) {
+          // nur wenn Tracking noch da ist, letzten guten Wert anzeigen
+          drawCameraPoseText(lastGoodPose, poseMarkers.length, lastGoodPose.z || 0);
+          statusEl.textContent =
+            `Status: Kamera läuft – Tracking gehalten`;
         } else {
           statusEl.textContent =
             `Status: Kamera läuft – ${validMarkers.length} gültige Marker`;
@@ -750,7 +829,7 @@
     }
 
     /******************************************************************
-     * 18) BUTTONS
+     * 19) BUTTONS
      ******************************************************************/
     startCameraBtn.addEventListener("click", async () => {
       await startCamera(currentDeviceId);
