@@ -68,11 +68,13 @@ button:disabled {
 
 .canvas-wrapper {
   width: 100%;
+  max-width: 900px;
 }
 
 canvas {
   width: 100%;
-  max-width: 720px;
+  height: auto;
+  aspect-ratio: 16 / 9;
   border-radius: 12px;
   border: 1px solid #ccc;
   background: black;

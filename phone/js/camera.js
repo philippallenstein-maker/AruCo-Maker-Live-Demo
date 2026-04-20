@@ -30,8 +30,13 @@ export function initCamera({ video, canvas }) {
   canvasElement = canvas;
   canvasContext = canvas.getContext("2d");
 
-  canvasElement.width = WORK_CANVAS.width;
-  canvasElement.height = WORK_CANVAS.height;
+  // interne Rendergröße (hoch = scharf)
+canvasElement.width = WORK_CANVAS.width;
+canvasElement.height = WORK_CANVAS.height;
+
+// CSS-Größe (wird angepasst)
+canvasElement.style.width = "100%";
+canvasElement.style.height = "auto";
 }
 
 /**
