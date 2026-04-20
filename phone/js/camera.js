@@ -21,6 +21,7 @@ import { updateStatusUI, updateTrackingUI } from "./main.js";
 let videoElement = null;
 let canvasElement = null;
 let canvasContext = null;
+let canvasWrapper = null;
 
 /**
  * Initialisiert das Modul mit DOM-Elementen.
@@ -29,6 +30,7 @@ export function initCamera({ video, canvas }) {
   videoElement = video;
   canvasElement = canvas;
   canvasContext = canvas.getContext("2d");
+  canvasWrapper = canvas.parentElement;
 }
 
 /**
@@ -50,7 +52,6 @@ export async function startCamera() {
     videoElement.srcObject = stream;
     await videoElement.play();
 
-    // Canvas erst jetzt an echtes Video-Seitenverhältnis anpassen
     syncCanvasToVideo();
 
     resetFrameCounter();
@@ -105,7 +106,7 @@ export function stopCamera() {
 }
 
 /**
- * Passt das Canvas an das echte Videoformat an.
+ * Passt Canvas UND Wrapper an das echte Videoformat an.
  */
 function syncCanvasToVideo() {
   const videoWidth = videoElement.videoWidth;
@@ -116,8 +117,13 @@ function syncCanvasToVideo() {
   canvasElement.width = videoWidth;
   canvasElement.height = videoHeight;
 
+  // Wichtig: Wrapper bekommt das echte Seitenverhältnis
+  if (canvasWrapper) {
+    canvasWrapper.style.aspectRatio = `${videoWidth} / ${videoHeight}`;
+  }
+
   canvasElement.style.width = "100%";
-  canvasElement.style.height = "auto";
+  canvasElement.style.height = "100%";
 }
 
 /**
@@ -125,24 +131,21 @@ function syncCanvasToVideo() {
  */
 function startRenderLoop() {
   function render() {
-    if (videoElement && canvasContext) {
-      if (videoElement.readyState >= 2) {
-        // Falls sich Videomaße ändern, Canvas nachziehen
-        if (
-          canvasElement.width !== videoElement.videoWidth ||
-          canvasElement.height !== videoElement.videoHeight
-        ) {
-          syncCanvasToVideo();
-        }
-
-        canvasContext.drawImage(
-          videoElement,
-          0,
-          0,
-          canvasElement.width,
-          canvasElement.height
-        );
+    if (videoElement && canvasContext && videoElement.readyState >= 2) {
+      if (
+        canvasElement.width !== videoElement.videoWidth ||
+        canvasElement.height !== videoElement.videoHeight
+      ) {
+        syncCanvasToVideo();
       }
+
+      canvasContext.drawImage(
+        videoElement,
+        0,
+        0,
+        canvasElement.width,
+        canvasElement.height
+      );
     }
 
     const id = requestAnimationFrame(render);
