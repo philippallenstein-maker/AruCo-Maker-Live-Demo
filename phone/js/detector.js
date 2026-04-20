@@ -10,19 +10,12 @@ import {
   setDistance
 } from "./state.js";
 
-/**
- * Detector-Modul:
- * - Marker erkennen
- * - doppelte IDs pro Frame filtern
- * - Referenzmarker auswählen
- * - Pose für Referenzmarker schätzen
- */
-
 let detector = null;
 let posit = null;
+let currentCanvasWidth = null;
 
 /**
- * Initialisiert ArUco-Detektor und POSIT.
+ * Initialisiert / reinitialisiert Detector und POSIT.
  */
 export function initDetector(canvasWidth) {
   detector = new AR.Detector({
@@ -30,11 +23,20 @@ export function initDetector(canvasWidth) {
   });
 
   posit = new POS.Posit(MARKER_SIZE, canvasWidth);
+  currentCanvasWidth = canvasWidth;
+}
+
+/**
+ * Stellt sicher, dass der Detector zur aktuellen Canvasbreite passt.
+ */
+export function ensureDetector(canvasWidth) {
+  if (!detector || !posit || currentCanvasWidth !== canvasWidth) {
+    initDetector(canvasWidth);
+  }
 }
 
 /**
  * Führt nur jedes N-te Frame eine Erkennung aus.
- * Sonst wird null zurückgegeben.
  */
 export function shouldRunDetection() {
   incrementFrameCounter();
@@ -78,9 +80,7 @@ export function estimateMarkerPose(marker, canvas) {
 }
 
 /**
- * Wählt den Referenzmarker:
- * - bisherigen Referenzmarker behalten, wenn noch sichtbar
- * - sonst größten Marker nehmen
+ * Wählt den Referenzmarker.
  */
 export function chooseReferenceMarker(markers) {
   if (!markers.length) {
@@ -101,7 +101,7 @@ export function chooseReferenceMarker(markers) {
 }
 
 /**
- * Schätzt grobe Distanz aus Markergröße in Pixeln.
+ * Schätzt grobe Distanz aus Markergröße.
  */
 export function estimateDistanceFromMarker(marker, focalLengthPx, minDistance, maxDistance) {
   if (!marker) {
@@ -124,10 +124,6 @@ export function estimateDistanceFromMarker(marker, focalLengthPx, minDistance, m
   return distance;
 }
 
-/**
- * Filtert doppelte IDs:
- * pro ID bleibt nur der Marker mit der größten Fläche.
- */
 function dedupeMarkersByLargestArea(markers) {
   const bestById = new Map();
 
@@ -145,9 +141,6 @@ function dedupeMarkersByLargestArea(markers) {
   return Array.from(bestById.values()).map(entry => entry.marker);
 }
 
-/**
- * Markerfläche.
- */
 export function getMarkerArea(marker) {
   const corners = marker.corners;
   let area = 0;
@@ -161,9 +154,6 @@ export function getMarkerArea(marker) {
   return Math.abs(area / 2);
 }
 
-/**
- * Markerzentrum.
- */
 export function getMarkerCenter(marker) {
   let x = 0;
   let y = 0;
@@ -179,9 +169,6 @@ export function getMarkerCenter(marker) {
   };
 }
 
-/**
- * Gemittelte Kantenlänge in Pixeln.
- */
 export function getMarkerPixelSize(marker) {
   const c = marker.corners;
 
