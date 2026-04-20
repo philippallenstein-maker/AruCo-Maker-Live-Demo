@@ -9,19 +9,21 @@ import {
   resetFrameCounter,
   resetTrackingInfo
 } from "./state.js";
-import { updateStatusUI, updateTrackingUI } from "./main.js";
 
 /**
  * Kamera-Modul:
  * - Kamera starten
  * - Kamera stoppen
  * - Video proportional ins Canvas zeichnen
+ * - optional pro Frame Callback ausführen
  */
 
 let videoElement = null;
 let canvasElement = null;
 let canvasContext = null;
 let canvasWrapper = null;
+
+let onFrameCallback = null;
 
 /**
  * Initialisiert das Modul mit DOM-Elementen.
@@ -34,12 +36,29 @@ export function initCamera({ video, canvas }) {
 }
 
 /**
+ * Registriert einen Callback, der nach jedem gezeichneten Frame läuft.
+ */
+export function setOnFrameCallback(callback) {
+  onFrameCallback = callback;
+}
+
+/**
+ * Gibt die Canvas-Referenzen an andere Module zurück.
+ */
+export function getCanvasContext() {
+  return canvasContext;
+}
+
+export function getCanvasElement() {
+  return canvasElement;
+}
+
+/**
  * Startet die Kamera.
  */
 export async function startCamera() {
   try {
     setStatus("Kamera wird gestartet...");
-    updateStatusUI();
 
     stopCamera();
 
@@ -58,14 +77,11 @@ export async function startCamera() {
     resetTrackingInfo();
 
     setStatus("Kamera läuft");
-    updateStatusUI();
-    updateTrackingUI();
 
     startRenderLoop();
   } catch (error) {
     console.error("Fehler beim Starten der Kamera:", error);
     setStatus("Kamerafehler");
-    updateStatusUI();
   }
 }
 
@@ -101,8 +117,6 @@ export function stopCamera() {
   resetTrackingInfo();
 
   setStatus("Kamera gestoppt");
-  updateStatusUI();
-  updateTrackingUI();
 }
 
 /**
@@ -117,7 +131,6 @@ function syncCanvasToVideo() {
   canvasElement.width = videoWidth;
   canvasElement.height = videoHeight;
 
-  // Wichtig: Wrapper bekommt das echte Seitenverhältnis
   if (canvasWrapper) {
     canvasWrapper.style.aspectRatio = `${videoWidth} / ${videoHeight}`;
   }
@@ -146,6 +159,10 @@ function startRenderLoop() {
         canvasElement.width,
         canvasElement.height
       );
+
+      if (typeof onFrameCallback === "function") {
+        onFrameCallback();
+      }
     }
 
     const id = requestAnimationFrame(render);

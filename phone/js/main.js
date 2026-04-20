@@ -1,15 +1,35 @@
-import { state } from "./state.js";
-import { initCamera, startCamera, stopCamera } from "./camera.js";
+import { state, setStatus } from "./state.js";
+import { initCamera, startCamera, stopCamera, setOnFrameCallback, getCanvasContext, getCanvasElement } from "./camera.js";
+import {
+  initDetector,
+  shouldRunDetection,
+  detectMarkers,
+  chooseReferenceMarker,
+  estimateMarkerPose,
+  estimateDistanceFromMarker
+} from "./detector.js";
+import {
+  drawMarkers,
+  drawAxes,
+  drawInfo
+} from "./overlay.js";
+import {
+  FOCAL_LENGTH_PX
+} from "./config.js";
 
 /**
  * Einstiegspunkt der Phone-Seite.
  * Diese Datei verbindet:
  * - DOM
  * - Kamera
- * - UI
+ * - Detektor
+ * - Overlay
  */
 
 let elements = null;
+let lastMarkers = [];
+let lastReferenceMarker = null;
+let lastReferencePose = null;
 
 init();
 
@@ -32,6 +52,12 @@ function init() {
     canvas: elements.canvas
   });
 
+  // Detector erst initialisieren, wenn das Canvas existiert
+  initDetector(elements.canvas.width);
+
+  // Callback für jeden Frame registrieren
+  setOnFrameCallback(handleFrame);
+
   bindEvents();
   updateStatusUI();
   updateTrackingUI();
@@ -43,11 +69,64 @@ function init() {
 function bindEvents() {
   elements.startCameraBtn.addEventListener("click", async () => {
     await startCamera();
+    updateStatusUI();
+    updateTrackingUI();
   });
 
   elements.stopCameraBtn.addEventListener("click", () => {
     stopCamera();
+    lastMarkers = [];
+    lastReferenceMarker = null;
+    lastReferencePose = null;
+    updateStatusUI();
+    updateTrackingUI();
   });
+}
+
+/**
+ * Wird nach jedem gerenderten Kameraframe aufgerufen.
+ */
+function handleFrame() {
+  const ctx = getCanvasContext();
+  const canvas = getCanvasElement();
+
+  if (!ctx || !canvas) return;
+
+  // Nicht in jedem Frame neu erkennen
+  if (shouldRunDetection()) {
+    const markers = detectMarkers(ctx, canvas);
+    const referenceMarker = chooseReferenceMarker(markers);
+
+    let referencePose = null;
+    let distance = null;
+
+    if (referenceMarker) {
+      referencePose = estimateMarkerPose(referenceMarker, canvas);
+      distance = estimateDistanceFromMarker(referenceMarker, FOCAL_LENGTH_PX, 0.2, 5.0);
+    }
+
+    lastMarkers = markers;
+    lastReferenceMarker = referenceMarker;
+    lastReferencePose = referencePose;
+
+    if (referenceMarker) {
+      setStatus(`Kamera läuft – ${markers.length} Marker – Referenz ${referenceMarker.id}`);
+    } else {
+      setStatus("Kamera läuft – kein Marker erkannt");
+    }
+
+    updateStatusUI();
+    updateTrackingUI();
+  }
+
+  // Overlay immer auf Basis des letzten erkannten Zustands zeichnen
+  drawMarkers(ctx, lastMarkers, state.referenceMarkerId);
+
+  if (lastReferencePose) {
+    drawAxes(ctx, canvas, lastReferencePose);
+  }
+
+  drawInfo(ctx, lastReferenceMarker, state.distance);
 }
 
 /**
