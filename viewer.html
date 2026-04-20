@@ -3,15 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AruCo 3D Viewer</title>
+  <title>AruCo Viewer Testmodus</title>
   <link rel="stylesheet" href="style.css" />
 
-  <!--
-    Import Map:
-    Damit kann der Browser "three" und "three/addons/..." korrekt auflösen.
-    Genau das behebt den Fehler:
-    Failed to resolve module specifier "three"
-  -->
   <script type="importmap">
   {
     "imports": {
@@ -23,8 +17,8 @@
 
   <style>
     #scene3d {
-      width: 950px;
-      height: 620px;
+      width: 980px;
+      height: 640px;
       border-radius: 12px;
       overflow: hidden;
       background: #f8f8f8;
@@ -49,34 +43,72 @@
       margin-right: 8px;
       vertical-align: middle;
     }
+
+    .test-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(120px, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .test-grid button {
+      width: 100%;
+    }
+
+    .section-title {
+      margin-top: 14px;
+      font-weight: bold;
+    }
   </style>
 </head>
 <body>
   <h1>Laptop / Beamer Viewer</h1>
 
   <div class="layout">
-    <div class="panel" style="max-width: 320px;">
+    <div class="panel" style="max-width: 360px;">
       <h2>Live-Werte</h2>
 
       <div class="info-grid">
-        <p>X: <span id="x">0.00</span> m</p>
-        <p>Y: <span id="y">0.00</span> m</p>
-        <p>Z: <span id="z">0.00</span> m</p>
+        <p>X: <span id="x">1.00</span> m</p>
+        <p>Y: <span id="y">1.20</span> m</p>
+        <p>Z: <span id="z">1.20</span> m</p>
         <p>Yaw: <span id="yaw">0.00</span> rad</p>
         <p>Pitch: <span id="pitch">0.00</span> rad</p>
         <p>Roll: <span id="roll">0.00</span> rad</p>
-        <p>Status: <span id="status">verbinde...</span></p>
+        <p>Status: <span id="status">Testmodus</span></p>
       </div>
 
       <button id="resetViewBtn">Ansicht zurücksetzen</button>
+
+      <div class="section-title">Testpositionen</div>
+      <div class="test-grid">
+        <button id="btnCenter">Mitte</button>
+        <button id="btnTopLeft">Oben links</button>
+        <button id="btnTopRight">Oben rechts</button>
+        <button id="btnBottomLeft">Unten links</button>
+        <button id="btnBottomRight">Unten rechts</button>
+        <button id="btnNear">Nah</button>
+        <button id="btnMedium">Mittel</button>
+        <button id="btnFar">Weit</button>
+        <button id="btnLeft">Links</button>
+        <button id="btnRight">Rechts</button>
+        <button id="btnUp">Hoch</button>
+        <button id="btnDown">Runter</button>
+      </div>
+
+      <div class="section-title">Automatik</div>
+      <div class="test-grid">
+        <button id="btnAutoStart">Auto-Test starten</button>
+        <button id="btnAutoStop">Auto-Test stoppen</button>
+      </div>
 
       <hr />
 
       <p><strong>Interpretation</strong></p>
       <p>
-        Die transparente Box ist der Raum. Die helle Wand hinten ist die Marker-Wand.
-        Die schwarzen Felder sind die 4 festen ArUco-Marker.
-        Das blaue Objekt ist das iPhone / die Kamera.
+        Die graue Wand hinten ist die Marker-Wand.
+        Die 4 schwarzen Felder sind die festen ArUco-Marker.
+        Das blaue Objekt ist die Kamera bzw. das iPhone.
       </p>
 
       <div class="legend">
@@ -93,20 +125,12 @@
   </div>
 
   <script type="module">
-    /*
-      Hier importieren wir jetzt so, wie Three.js es für Addons vorsieht:
-      - three
-      - three/addons/controls/OrbitControls.js
-
-      Das funktioniert mit der Import Map oben.
-    */
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-    // HIER DEINE ECHTE WSS-ADRESSE EINTRAGEN
-    const WS_URL = "wss://scaling-chainsaw-x5g5r9gj575pfppwq-8080.app.github.dev/";
-
-    // HTML-Elemente holen
+    /******************************************************************
+     * 1) HTML-ELEMENTE
+     ******************************************************************/
     const xEl = document.getElementById("x");
     const yEl = document.getElementById("y");
     const zEl = document.getElementById("z");
@@ -114,69 +138,100 @@
     const pitchEl = document.getElementById("pitch");
     const rollEl = document.getElementById("roll");
     const statusEl = document.getElementById("status");
+
     const resetViewBtn = document.getElementById("resetViewBtn");
+
+    const btnCenter = document.getElementById("btnCenter");
+    const btnTopLeft = document.getElementById("btnTopLeft");
+    const btnTopRight = document.getElementById("btnTopRight");
+    const btnBottomLeft = document.getElementById("btnBottomLeft");
+    const btnBottomRight = document.getElementById("btnBottomRight");
+    const btnNear = document.getElementById("btnNear");
+    const btnMedium = document.getElementById("btnMedium");
+    const btnFar = document.getElementById("btnFar");
+    const btnLeft = document.getElementById("btnLeft");
+    const btnRight = document.getElementById("btnRight");
+    const btnUp = document.getElementById("btnUp");
+    const btnDown = document.getElementById("btnDown");
+    const btnAutoStart = document.getElementById("btnAutoStart");
+    const btnAutoStop = document.getElementById("btnAutoStop");
+
     const sceneContainer = document.getElementById("scene3d");
 
-    // Letzte empfangene Pose
+    /******************************************************************
+     * 2) TEST-POSE
+     * ---------------------------------------------------------------
+     * Das ist jetzt bewusst eine feste Testpose, komplett ohne Handy.
+     ******************************************************************/
     let pose = {
       x: 1.0,
       y: 1.2,
-      z: 1.4,
+      z: 1.2,
       yaw: 0,
       pitch: 0,
       roll: 0
     };
 
-    // Szene
+    let autoTestRunning = false;
+    let autoT = 0;
+
+    /******************************************************************
+     * 3) SZENE
+     ******************************************************************/
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf5f5f5);
 
-    // Darstellungskamera
     const camera = new THREE.PerspectiveCamera(
       50,
       sceneContainer.clientWidth / sceneContainer.clientHeight,
       0.1,
       100
     );
-    camera.position.set(3.8, 2.6, 4.8);
-    camera.lookAt(1.0, 1.0, 0.8);
+    camera.position.set(4.2, 2.8, 5.2);
+    camera.lookAt(1.0, 1.2, 1.0);
 
-    // Renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(sceneContainer.clientWidth, sceneContainer.clientHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
     sceneContainer.appendChild(renderer.domElement);
 
-    // Maussteuerung
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(1.0, 1.1, 0.8);
+    controls.target.set(1.0, 1.2, 1.0);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
-    controls.maxPolarAngle = Math.PI / 2.05;
-    controls.minDistance = 2.2;
-    controls.maxDistance = 9;
+    controls.maxPolarAngle = Math.PI / 2.02;
+    controls.minDistance = 2.5;
+    controls.maxDistance = 10;
 
     resetViewBtn.addEventListener("click", () => {
-      camera.position.set(3.8, 2.6, 4.8);
-      controls.target.set(1.0, 1.1, 0.8);
+      camera.position.set(4.2, 2.8, 5.2);
+      controls.target.set(1.0, 1.2, 1.0);
       controls.update();
     });
 
-    // Licht
-    scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+    /******************************************************************
+     * 4) LICHT
+     ******************************************************************/
+    scene.add(new THREE.AmbientLight(0xffffff, 0.9));
 
     const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
     directionalLight.position.set(4, 5, 3);
     scene.add(directionalLight);
 
-    // Raum
+    /******************************************************************
+     * 5) RAUM
+     * ---------------------------------------------------------------
+     * Wir machen den Raum bewusst größer und plausibler:
+     * - Breite: 2.0 m
+     * - Höhe:   2.6 m
+     * - Tiefe:  3.2 m
+     ******************************************************************/
     const room = {
       width: 2.0,
-      height: 2.4,
-      depth: 2.5
+      height: 2.6,
+      depth: 3.2
     };
 
-    // Drahtbox
     const roomGeometry = new THREE.BoxGeometry(room.width, room.height, room.depth);
     const roomEdges = new THREE.EdgesGeometry(roomGeometry);
     const roomLine = new THREE.LineSegments(
@@ -186,10 +241,12 @@
     roomLine.position.set(room.width / 2, room.height / 2, room.depth / 2);
     scene.add(roomLine);
 
-    // Boden
+    /******************************************************************
+     * 6) BODEN
+     ******************************************************************/
     const floorGeometry = new THREE.PlaneGeometry(room.width, room.depth);
     const floorMaterial = new THREE.MeshStandardMaterial({
-      color: 0x8b6b2e,
+      color: 0x7a5b20,
       side: THREE.DoubleSide
     });
     const floor = new THREE.Mesh(floorGeometry, floorMaterial);
@@ -197,18 +254,27 @@
     floor.position.set(room.width / 2, 0, room.depth / 2);
     scene.add(floor);
 
-    // Rückwand
+    /******************************************************************
+     * 7) RÜCKWAND
+     ******************************************************************/
     const wallGeometry = new THREE.PlaneGeometry(room.width, room.height);
     const wallMaterial = new THREE.MeshStandardMaterial({
-      color: 0xd9d9d9,
+      color: 0xd0d0d0,
       side: THREE.DoubleSide
     });
     const wall = new THREE.Mesh(wallGeometry, wallMaterial);
     wall.position.set(room.width / 2, room.height / 2, 0);
     scene.add(wall);
 
-    // Marker
-    const markerSize = 0.12;
+    /******************************************************************
+     * 8) MARKER AN DER WAND
+     * ---------------------------------------------------------------
+     * Das ist die feste Referenz.
+     * Abstand horizontal: 0.8 m
+     * Abstand vertikal:   0.6 m
+     ******************************************************************/
+    const markerSize = 0.10;
+
     const markers = [
       { id: 0, x: 0.6, y: 1.5, z: 0.01 },
       { id: 1, x: 1.4, y: 1.5, z: 0.01 },
@@ -216,7 +282,7 @@
       { id: 3, x: 1.4, y: 0.9, z: 0.01 }
     ];
 
-    function createMarker() {
+    function createMarker(label) {
       const group = new THREE.Group();
 
       const outer = new THREE.Mesh(
@@ -232,25 +298,44 @@
       inner.position.z = 0.001;
       group.add(inner);
 
+      const labelCanvas = document.createElement("canvas");
+      labelCanvas.width = 256;
+      labelCanvas.height = 64;
+      const lctx = labelCanvas.getContext("2d");
+      lctx.fillStyle = "black";
+      lctx.font = "28px Arial";
+      lctx.fillText(label, 10, 40);
+
+      const texture = new THREE.CanvasTexture(labelCanvas);
+      const spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true });
+      const sprite = new THREE.Sprite(spriteMaterial);
+      sprite.scale.set(0.28, 0.07, 1);
+      sprite.position.set(0, 0.11, 0.01);
+      group.add(sprite);
+
       return group;
     }
 
     markers.forEach((m) => {
-      const marker = createMarker();
+      const marker = createMarker(`ID ${m.id}`);
       marker.position.set(m.x, m.y, m.z);
       scene.add(marker);
     });
 
-    // Achsenhilfe
+    /******************************************************************
+     * 9) ACHSENHILFE
+     ******************************************************************/
     const axesHelper = new THREE.AxesHelper(0.5);
-    axesHelper.position.set(0.2, 0.2, 0.15);
+    axesHelper.position.set(0.2, 0.2, 0.2);
     scene.add(axesHelper);
 
-    // Kameraobjekt
+    /******************************************************************
+     * 10) KAMERAOBJEKT
+     ******************************************************************/
     const phoneGroup = new THREE.Group();
 
     const phoneBody = new THREE.Mesh(
-      new THREE.BoxGeometry(0.12, 0.08, 0.05),
+      new THREE.BoxGeometry(0.14, 0.09, 0.05),
       new THREE.MeshStandardMaterial({ color: 0x1f6feb })
     );
     phoneGroup.add(phoneBody);
@@ -258,16 +343,18 @@
     const arrow = new THREE.ArrowHelper(
       new THREE.Vector3(0, 0, -1),
       new THREE.Vector3(0, 0, 0),
-      0.28,
+      0.35,
       0x1f6feb,
-      0.08,
-      0.04
+      0.10,
+      0.05
     );
     phoneGroup.add(arrow);
 
     scene.add(phoneGroup);
 
-    // Distanzlinie
+    /******************************************************************
+     * 11) DISTANZLINIE ZUR WAND
+     ******************************************************************/
     let distanceLine = null;
 
     function updateDistanceLine() {
@@ -277,14 +364,14 @@
         distanceLine.material.dispose();
       }
 
-      const clampedX = Math.max(0.1, Math.min(1.9, pose.x));
-const clampedY = Math.max(0.1, Math.min(2.3, pose.y));
-const clampedZ = Math.max(0.1, Math.min(2.4, pose.z));
+      const clampedX = THREE.MathUtils.clamp(pose.x, 0.0, room.width);
+      const clampedY = THREE.MathUtils.clamp(pose.y, 0.0, room.height);
+      const clampedZ = THREE.MathUtils.clamp(pose.z, 0.0, room.depth);
 
-const points = [
-  new THREE.Vector3(clampedX, clampedY, 0),
-  new THREE.Vector3(clampedX, clampedY, clampedZ)
-];
+      const points = [
+        new THREE.Vector3(clampedX, clampedY, 0),
+        new THREE.Vector3(clampedX, clampedY, clampedZ)
+      ];
 
       const geometry = new THREE.BufferGeometry().setFromPoints(points);
       const material = new THREE.LineBasicMaterial({ color: 0x1f6feb });
@@ -292,70 +379,148 @@ const points = [
       scene.add(distanceLine);
     }
 
+    /******************************************************************
+     * 12) POSE AUF KAMERAOBJEKT ÜBERTRAGEN
+     ******************************************************************/
     function updatePhonePose() {
-      // Werte auf den Raum begrenzen, damit die Kamera nicht aus der Box springt
-const clampedX = Math.max(0.1, Math.min(1.9, pose.x));
-const clampedY = Math.max(0.1, Math.min(2.3, pose.y));
-const clampedZ = Math.max(0.1, Math.min(2.4, pose.z));
+      const clampedX = THREE.MathUtils.clamp(pose.x, 0.0, room.width);
+      const clampedY = THREE.MathUtils.clamp(pose.y, 0.0, room.height);
+      const clampedZ = THREE.MathUtils.clamp(pose.z, 0.0, room.depth);
 
-phoneGroup.position.set(clampedX, clampedY, clampedZ);
+      phoneGroup.position.set(clampedX, clampedY, clampedZ);
+
       phoneGroup.rotation.order = "YXZ";
       phoneGroup.rotation.y = pose.yaw;
       phoneGroup.rotation.x = pose.pitch;
       phoneGroup.rotation.z = pose.roll;
+
       updateDistanceLine();
+
+      xEl.textContent = clampedX.toFixed(2);
+      yEl.textContent = clampedY.toFixed(2);
+      zEl.textContent = clampedZ.toFixed(2);
+      yawEl.textContent = pose.yaw.toFixed(2);
+      pitchEl.textContent = pose.pitch.toFixed(2);
+      rollEl.textContent = pose.roll.toFixed(2);
     }
 
-    updatePhonePose();
+    /******************************************************************
+     * 13) TESTPOSITIONEN
+     ******************************************************************/
+    function setPose(newPose) {
+      pose = { ...pose, ...newPose };
+      updatePhonePose();
+    }
 
+    // Mitte vor allen 4 Markern
+    btnCenter.addEventListener("click", () => {
+      setPose({ x: 1.0, y: 1.2, z: 1.2, yaw: 0, pitch: 0, roll: 0 });
+    });
+
+    // Direkt vor den vier Eckbereichen
+    btnTopLeft.addEventListener("click", () => {
+      setPose({ x: 0.6, y: 1.5, z: 1.2 });
+    });
+
+    btnTopRight.addEventListener("click", () => {
+      setPose({ x: 1.4, y: 1.5, z: 1.2 });
+    });
+
+    btnBottomLeft.addEventListener("click", () => {
+      setPose({ x: 0.6, y: 0.9, z: 1.2 });
+    });
+
+    btnBottomRight.addEventListener("click", () => {
+      setPose({ x: 1.4, y: 0.9, z: 1.2 });
+    });
+
+    // Distanztests
+    btnNear.addEventListener("click", () => {
+      setPose({ z: 0.5 });
+    });
+
+    btnMedium.addEventListener("click", () => {
+      setPose({ z: 1.2 });
+    });
+
+    btnFar.addEventListener("click", () => {
+      setPose({ z: 2.2 });
+    });
+
+    // Seitenverschiebung
+    btnLeft.addEventListener("click", () => {
+      setPose({ x: 0.4 });
+    });
+
+    btnRight.addEventListener("click", () => {
+      setPose({ x: 1.6 });
+    });
+
+    // Höhenverschiebung
+    btnUp.addEventListener("click", () => {
+      setPose({ y: 1.8 });
+    });
+
+    btnDown.addEventListener("click", () => {
+      setPose({ y: 0.5 });
+    });
+
+    /******************************************************************
+     * 14) AUTO-TEST
+     ******************************************************************/
+    btnAutoStart.addEventListener("click", () => {
+      autoTestRunning = true;
+      statusEl.textContent = "Auto-Test läuft";
+    });
+
+    btnAutoStop.addEventListener("click", () => {
+      autoTestRunning = false;
+      statusEl.textContent = "Testmodus";
+    });
+
+    function updateAutoTest() {
+      if (!autoTestRunning) return;
+
+      autoT += 0.01;
+
+      pose.x = 1.0 + Math.cos(autoT) * 0.55;
+      pose.y = 1.2 + Math.sin(autoT * 0.7) * 0.35;
+      pose.z = 1.4 + Math.sin(autoT * 1.2) * 0.9;
+      pose.yaw = Math.sin(autoT * 0.8) * 0.4;
+      pose.pitch = 0;
+      pose.roll = 0;
+
+      updatePhonePose();
+    }
+
+    /******************************************************************
+     * 15) ANIMATION
+     ******************************************************************/
     function animate() {
       requestAnimationFrame(animate);
+
+      updateAutoTest();
       controls.update();
       renderer.render(scene, camera);
     }
 
-    animate();
-
+    /******************************************************************
+     * 16) RESIZE
+     ******************************************************************/
     window.addEventListener("resize", () => {
       const width = sceneContainer.clientWidth;
       const height = sceneContainer.clientHeight;
+
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
       renderer.setSize(width, height);
     });
 
-    // WebSocket
-    const ws = new WebSocket(WS_URL);
-
-    ws.onopen = () => {
-      statusEl.textContent = "verbunden";
-    };
-
-    ws.onerror = (err) => {
-      console.error("WebSocket Fehler:", err);
-      statusEl.textContent = "Fehler";
-    };
-
-    ws.onclose = () => {
-      statusEl.textContent = "getrennt";
-    };
-
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-
-      if (msg.type === "pose") {
-        pose = msg.data;
-
-        xEl.textContent = pose.x.toFixed(2);
-        yEl.textContent = pose.y.toFixed(2);
-        zEl.textContent = pose.z.toFixed(2);
-        yawEl.textContent = pose.yaw.toFixed(2);
-        pitchEl.textContent = pose.pitch.toFixed(2);
-        rollEl.textContent = pose.roll.toFixed(2);
-
-        updatePhonePose();
-      }
-    };
+    /******************************************************************
+     * 17) START
+     ******************************************************************/
+    updatePhonePose();
+    animate();
   </script>
 </body>
 </html>
