@@ -6,9 +6,11 @@ import {
   VIEW_CAMERA,
   MARKER_LOCAL,
   MARKER_SIZE,
-  FLOOR_Y,
+  FLOOR_Y_LOCAL,
+  FLOOR_Y_GLOBAL,
   localToGlobal,
-  poseLocalToGlobal
+  poseLocalToGlobal,
+  localYToGlobalY
 } from "./config.js";
 import { getPose } from "./state.js";
 
@@ -132,7 +134,7 @@ export function updatePhonePose() {
   const globalPose = poseLocalToGlobal(localPose);
 
   const clampedX = THREE.MathUtils.clamp(globalPose.x, 0.0, ROOM.width);
-  const clampedY = THREE.MathUtils.clamp(globalPose.y, FLOOR_Y, ROOM.height);
+  const clampedY = THREE.MathUtils.clamp(globalPose.y, FLOOR_Y_GLOBAL, ROOM.height);
   const clampedZ = THREE.MathUtils.clamp(globalPose.z, 0.0, ROOM.depth);
 
   phoneGroup.position.set(clampedX, clampedY, clampedZ);
@@ -160,7 +162,11 @@ function addLights() {
  * Baut den Raum als Drahtbox.
  */
 function addRoom() {
-  const roomGeometry = new THREE.BoxGeometry(ROOM.width, ROOM.height - FLOOR_Y, ROOM.depth);
+  const roomGeometry = new THREE.BoxGeometry(
+  ROOM.width,
+  ROOM.height - FLOOR_Y_GLOBAL,
+  ROOM.depth
+);
   const roomEdges = new THREE.EdgesGeometry(roomGeometry);
 
   const roomLine = new THREE.LineSegments(
@@ -173,7 +179,7 @@ function addRoom() {
    * Der Raum startet global nicht bei y=0, sondern bei FLOOR_Y.
    * Daher wird seine Mitte entsprechend nach oben verschoben.
    */
-  const roomCenterY = FLOOR_Y + (ROOM.height - FLOOR_Y) / 2;
+  const roomCenterY = FLOOR_Y_GLOBAL + (ROOM.height - FLOOR_Y_GLOBAL) / 2;
 
   roomLine.position.set(
     ROOM.width / 2,
@@ -197,7 +203,7 @@ function addFloor() {
 
   const floor = new THREE.Mesh(floorGeometry, floorMaterial);
   floor.rotation.x = -Math.PI / 2;
-  floor.position.set(ROOM.width / 2, FLOOR_Y, ROOM.depth / 2);
+  floor.position.set(ROOM.width / 2, FLOOR_Y_GLOBAL, ROOM.depth / 2);
 
   scene.add(floor);
 }
@@ -207,7 +213,7 @@ function addFloor() {
  * Die Wand liegt global bei Z = WALL.z
  */
 function addWall() {
-  const wallHeight = ROOM.height - FLOOR_Y;
+  const wallHeight = ROOM.height - FLOOR_Y_GLOBAL;
 
   const wallGeometry = new THREE.PlaneGeometry(ROOM.width, wallHeight);
   const wallMaterial = new THREE.MeshStandardMaterial({
@@ -217,7 +223,7 @@ function addWall() {
 
   const wall = new THREE.Mesh(wallGeometry, wallMaterial);
 
-  const wallCenterY = FLOOR_Y + wallHeight / 2;
+  const wallCenterY = FLOOR_Y_GLOBAL + wallHeight / 2;
 
   wall.position.set(
     ROOM.width / 2,

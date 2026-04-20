@@ -35,7 +35,26 @@ export const MARKER_RECT_HEIGHT = 0.60;
  * Y = -1.20
  */
 export const ID2_HEIGHT_ABOVE_FLOOR = 1.20;
-export const FLOOR_Y = -1.20;
+
+/**
+ * Lokale Bodenhöhe relativ zu ID2
+ */
+export const FLOOR_Y_LOCAL = -1.20;
+
+/**
+ * Globale Bodenhöhe im Viewer
+ */
+export const FLOOR_Y_GLOBAL = 0.0;
+
+/**
+ * Rechnet eine lokale Y-Höhe in globale Viewer-Höhe um.
+ * Beispiel:
+ * - lokal ID2 = 0   -> global 1.20
+ * - lokal Boden = -1.20 -> global 0
+ */
+export function localYToGlobalY(localY) {
+  return ID2_HEIGHT_ABOVE_FLOOR + localY;
+}
 
 /**
  * Raumgröße für die Darstellung.
@@ -102,7 +121,7 @@ export const INITIAL_POSE = {
 export function localToGlobal(localPoint) {
   return {
     x: MARKER_GROUP_OFFSET.x + localPoint.x,
-    y: MARKER_GROUP_OFFSET.y + localPoint.y,
+    y: localYToGlobalY(localPoint.y),
     z: MARKER_GROUP_OFFSET.z + localPoint.z
   };
 }
@@ -114,7 +133,7 @@ export function localToGlobal(localPoint) {
 export function poseLocalToGlobal(localPose) {
   return {
     x: MARKER_GROUP_OFFSET.x + localPose.x,
-    y: MARKER_GROUP_OFFSET.y + localPose.y,
+    y: localYToGlobalY(localPose.y),
     z: MARKER_GROUP_OFFSET.z + localPose.z,
     yaw: localPose.yaw,
     pitch: localPose.pitch,
