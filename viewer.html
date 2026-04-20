@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AruCo Viewer Testmodus</title>
+  <title>AruCo Viewer</title>
   <link rel="stylesheet" href="style.css" />
 
   <script type="importmap">
@@ -59,13 +59,63 @@
       margin-top: 14px;
       font-weight: bold;
     }
+
+    .mode-box {
+      margin-top: 14px;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      background: #fafafa;
+    }
+
+    .mode-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    details {
+      margin-top: 12px;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      padding: 10px;
+      background: #fcfcfc;
+    }
+
+    details[open] {
+      background: #f8f8f8;
+    }
+
+    summary {
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body>
   <h1>Laptop / Beamer Viewer</h1>
 
   <div class="layout">
-    <div class="panel" style="max-width: 360px;">
+    <div class="panel" style="max-width: 380px;">
       <h2>Live-Werte</h2>
 
       <div class="info-grid">
@@ -76,31 +126,51 @@
         <p>Pitch: <span id="pitch">0.00</span> rad</p>
         <p>Roll: <span id="roll">0.00</span> rad</p>
         <p>Status: <span id="status">Testmodus</span></p>
+        <p>Modus: <span id="modeLabel">Test</span></p>
       </div>
 
       <button id="resetViewBtn">Ansicht zurücksetzen</button>
 
-      <div class="section-title">Testpositionen</div>
-      <div class="test-grid">
-        <button id="btnCenter">Mitte</button>
-        <button id="btnTopLeft">Oben links</button>
-        <button id="btnTopRight">Oben rechts</button>
-        <button id="btnBottomLeft">Unten links</button>
-        <button id="btnBottomRight">Unten rechts</button>
-        <button id="btnNear">Nah</button>
-        <button id="btnMedium">Mittel</button>
-        <button id="btnFar">Weit</button>
-        <button id="btnLeft">Links</button>
-        <button id="btnRight">Rechts</button>
-        <button id="btnUp">Hoch</button>
-        <button id="btnDown">Runter</button>
+      <div class="mode-box">
+        <div class="section-title">Live-Modus</div>
+        <label for="wsUrlInput">WSS-URL</label>
+        <input
+          id="wsUrlInput"
+          type="text"
+          placeholder="wss://scaling-chainsaw-x5g5r9gj575pfppwq-8080.app.github.dev/"
+        />
+
+        <div class="mode-row">
+          <button id="connectLiveBtn">Live-Modus starten</button>
+          <button id="disconnectLiveBtn" disabled>Live-Modus trennen</button>
+        </div>
       </div>
 
-      <div class="section-title">Automatik</div>
-      <div class="test-grid">
-        <button id="btnAutoStart">Auto-Test starten</button>
-        <button id="btnAutoStop">Auto-Test stoppen</button>
-      </div>
+      <details id="testPanel" open>
+        <summary>Testmodus</summary>
+
+        <div class="section-title">Testpositionen</div>
+        <div class="test-grid">
+          <button id="btnCenter">Mitte</button>
+          <button id="btnTopLeft">Oben links</button>
+          <button id="btnTopRight">Oben rechts</button>
+          <button id="btnBottomLeft">Unten links</button>
+          <button id="btnBottomRight">Unten rechts</button>
+          <button id="btnNear">Nah</button>
+          <button id="btnMedium">Mittel</button>
+          <button id="btnFar">Weit</button>
+          <button id="btnLeft">Links</button>
+          <button id="btnRight">Rechts</button>
+          <button id="btnUp">Hoch</button>
+          <button id="btnDown">Runter</button>
+        </div>
+
+        <div class="section-title">Automatik</div>
+        <div class="test-grid">
+          <button id="btnAutoStart">Auto-Test starten</button>
+          <button id="btnAutoStop">Auto-Test stoppen</button>
+        </div>
+      </details>
 
       <hr />
 
@@ -138,8 +208,15 @@
     const pitchEl = document.getElementById("pitch");
     const rollEl = document.getElementById("roll");
     const statusEl = document.getElementById("status");
+    const modeLabel = document.getElementById("modeLabel");
 
     const resetViewBtn = document.getElementById("resetViewBtn");
+
+    const wsUrlInput = document.getElementById("wsUrlInput");
+    const connectLiveBtn = document.getElementById("connectLiveBtn");
+    const disconnectLiveBtn = document.getElementById("disconnectLiveBtn");
+
+    const testPanel = document.getElementById("testPanel");
 
     const btnCenter = document.getElementById("btnCenter");
     const btnTopLeft = document.getElementById("btnTopLeft");
@@ -159,9 +236,37 @@
     const sceneContainer = document.getElementById("scene3d");
 
     /******************************************************************
-     * 2) TEST-POSE
-     * ---------------------------------------------------------------
-     * Das ist jetzt bewusst eine feste Testpose, komplett ohne Handy.
+     * 2) MODUS / SOCKET
+     ******************************************************************/
+    let mode = "test"; // "test" oder "live"
+    let ws = null;
+
+    function setMode(newMode) {
+      mode = newMode;
+      modeLabel.textContent = newMode === "live" ? "Live" : "Test";
+
+      const liveActive = newMode === "live";
+
+      // Testpanel nur im Testmodus benutzbar
+      testPanel.open = !liveActive;
+
+      const testButtons = [
+        btnCenter, btnTopLeft, btnTopRight, btnBottomLeft, btnBottomRight,
+        btnNear, btnMedium, btnFar, btnLeft, btnRight, btnUp, btnDown,
+        btnAutoStart, btnAutoStop
+      ];
+
+      testButtons.forEach(btn => {
+        btn.disabled = liveActive;
+      });
+
+      connectLiveBtn.disabled = liveActive;
+      disconnectLiveBtn.disabled = !liveActive;
+      wsUrlInput.disabled = liveActive;
+    }
+
+    /******************************************************************
+     * 3) TEST-POSE / LIVE-POSE
      ******************************************************************/
     let pose = {
       x: 1.0,
@@ -176,7 +281,7 @@
     let autoT = 0;
 
     /******************************************************************
-     * 3) SZENE
+     * 4) SZENE
      ******************************************************************/
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf5f5f5);
@@ -210,7 +315,7 @@
     });
 
     /******************************************************************
-     * 4) LICHT
+     * 5) LICHT
      ******************************************************************/
     scene.add(new THREE.AmbientLight(0xffffff, 0.9));
 
@@ -219,12 +324,7 @@
     scene.add(directionalLight);
 
     /******************************************************************
-     * 5) RAUM
-     * ---------------------------------------------------------------
-     * Wir machen den Raum bewusst größer und plausibler:
-     * - Breite: 2.0 m
-     * - Höhe:   2.6 m
-     * - Tiefe:  3.2 m
+     * 6) RAUM
      ******************************************************************/
     const room = {
       width: 2.0,
@@ -242,7 +342,7 @@
     scene.add(roomLine);
 
     /******************************************************************
-     * 6) BODEN
+     * 7) BODEN
      ******************************************************************/
     const floorGeometry = new THREE.PlaneGeometry(room.width, room.depth);
     const floorMaterial = new THREE.MeshStandardMaterial({
@@ -255,7 +355,7 @@
     scene.add(floor);
 
     /******************************************************************
-     * 7) RÜCKWAND
+     * 8) RÜCKWAND
      ******************************************************************/
     const wallGeometry = new THREE.PlaneGeometry(room.width, room.height);
     const wallMaterial = new THREE.MeshStandardMaterial({
@@ -267,11 +367,7 @@
     scene.add(wall);
 
     /******************************************************************
-     * 8) MARKER AN DER WAND
-     * ---------------------------------------------------------------
-     * Das ist die feste Referenz.
-     * Abstand horizontal: 0.8 m
-     * Abstand vertikal:   0.6 m
+     * 9) MARKER AN DER WAND
      ******************************************************************/
     const markerSize = 0.10;
 
@@ -323,14 +419,14 @@
     });
 
     /******************************************************************
-     * 9) ACHSENHILFE
+     * 10) ACHSENHILFE
      ******************************************************************/
     const axesHelper = new THREE.AxesHelper(0.5);
     axesHelper.position.set(0.2, 0.2, 0.2);
     scene.add(axesHelper);
 
     /******************************************************************
-     * 10) KAMERAOBJEKT
+     * 11) KAMERAOBJEKT
      ******************************************************************/
     const phoneGroup = new THREE.Group();
 
@@ -353,7 +449,7 @@
     scene.add(phoneGroup);
 
     /******************************************************************
-     * 11) DISTANZLINIE ZUR WAND
+     * 12) DISTANZLINIE ZUR WAND
      ******************************************************************/
     let distanceLine = null;
 
@@ -380,7 +476,7 @@
     }
 
     /******************************************************************
-     * 12) POSE AUF KAMERAOBJEKT ÜBERTRAGEN
+     * 13) POSE AUF KAMERAOBJEKT ÜBERTRAGEN
      ******************************************************************/
     function updatePhonePose() {
       const clampedX = THREE.MathUtils.clamp(pose.x, 0.0, room.width);
@@ -405,81 +501,47 @@
     }
 
     /******************************************************************
-     * 13) TESTPOSITIONEN
+     * 14) TESTPOSITIONEN
      ******************************************************************/
     function setPose(newPose) {
+      if (mode !== "test") return;
       pose = { ...pose, ...newPose };
       updatePhonePose();
     }
 
-    // Mitte vor allen 4 Markern
-    btnCenter.addEventListener("click", () => {
-      setPose({ x: 1.0, y: 1.2, z: 1.2, yaw: 0, pitch: 0, roll: 0 });
-    });
+    btnCenter.addEventListener("click", () => setPose({ x: 1.0, y: 1.2, z: 1.2, yaw: 0, pitch: 0, roll: 0 }));
+    btnTopLeft.addEventListener("click", () => setPose({ x: 0.6, y: 1.5, z: 1.2 }));
+    btnTopRight.addEventListener("click", () => setPose({ x: 1.4, y: 1.5, z: 1.2 }));
+    btnBottomLeft.addEventListener("click", () => setPose({ x: 0.6, y: 0.9, z: 1.2 }));
+    btnBottomRight.addEventListener("click", () => setPose({ x: 1.4, y: 0.9, z: 1.2 }));
 
-    // Direkt vor den vier Eckbereichen
-    btnTopLeft.addEventListener("click", () => {
-      setPose({ x: 0.6, y: 1.5, z: 1.2 });
-    });
+    btnNear.addEventListener("click", () => setPose({ z: 0.5 }));
+    btnMedium.addEventListener("click", () => setPose({ z: 1.2 }));
+    btnFar.addEventListener("click", () => setPose({ z: 2.2 }));
 
-    btnTopRight.addEventListener("click", () => {
-      setPose({ x: 1.4, y: 1.5, z: 1.2 });
-    });
-
-    btnBottomLeft.addEventListener("click", () => {
-      setPose({ x: 0.6, y: 0.9, z: 1.2 });
-    });
-
-    btnBottomRight.addEventListener("click", () => {
-      setPose({ x: 1.4, y: 0.9, z: 1.2 });
-    });
-
-    // Distanztests
-    btnNear.addEventListener("click", () => {
-      setPose({ z: 0.5 });
-    });
-
-    btnMedium.addEventListener("click", () => {
-      setPose({ z: 1.2 });
-    });
-
-    btnFar.addEventListener("click", () => {
-      setPose({ z: 2.2 });
-    });
-
-    // Seitenverschiebung
-    btnLeft.addEventListener("click", () => {
-      setPose({ x: 0.4 });
-    });
-
-    btnRight.addEventListener("click", () => {
-      setPose({ x: 1.6 });
-    });
-
-    // Höhenverschiebung
-    btnUp.addEventListener("click", () => {
-      setPose({ y: 1.8 });
-    });
-
-    btnDown.addEventListener("click", () => {
-      setPose({ y: 0.5 });
-    });
+    btnLeft.addEventListener("click", () => setPose({ x: 0.4 }));
+    btnRight.addEventListener("click", () => setPose({ x: 1.6 }));
+    btnUp.addEventListener("click", () => setPose({ y: 1.8 }));
+    btnDown.addEventListener("click", () => setPose({ y: 0.5 }));
 
     /******************************************************************
-     * 14) AUTO-TEST
+     * 15) AUTO-TEST
      ******************************************************************/
     btnAutoStart.addEventListener("click", () => {
+      if (mode !== "test") return;
       autoTestRunning = true;
       statusEl.textContent = "Auto-Test läuft";
     });
 
     btnAutoStop.addEventListener("click", () => {
       autoTestRunning = false;
-      statusEl.textContent = "Testmodus";
+      if (mode === "test") {
+        statusEl.textContent = "Testmodus";
+      }
     });
 
     function updateAutoTest() {
-      if (!autoTestRunning) return;
+      if (!autoTestRunning || mode !== "test") return;
 
       autoT += 0.01;
 
@@ -494,7 +556,76 @@
     }
 
     /******************************************************************
-     * 15) ANIMATION
+     * 16) LIVE-MODUS
+     ******************************************************************/
+    function connectLive() {
+      const wsUrl = wsUrlInput.value.trim();
+      if (!wsUrl) {
+        alert("Bitte eine WSS-URL eingeben.");
+        return;
+      }
+
+      autoTestRunning = false;
+
+      if (ws) {
+        ws.close();
+        ws = null;
+      }
+
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        setMode("live");
+        statusEl.textContent = "Live verbunden";
+        console.log("Viewer WebSocket verbunden");
+      };
+
+      ws.onerror = (err) => {
+        console.error("Viewer WebSocket Fehler:", err);
+        statusEl.textContent = "Live-Fehler";
+      };
+
+      ws.onclose = () => {
+        console.log("Viewer WebSocket getrennt");
+        setMode("test");
+        statusEl.textContent = "Live getrennt";
+      };
+
+      ws.onmessage = (event) => {
+        console.log("Viewer hat Nachricht bekommen:", event.data);
+
+        const msg = JSON.parse(event.data);
+
+        if (msg.type === "pose") {
+          pose = {
+            x: Number(msg.data.x) || 0,
+            y: Number(msg.data.y) || 0,
+            z: Number(msg.data.z) || 0,
+            yaw: Number(msg.data.yaw) || 0,
+            pitch: Number(msg.data.pitch) || 0,
+            roll: Number(msg.data.roll) || 0
+          };
+
+          updatePhonePose();
+        }
+      };
+    }
+
+    function disconnectLive() {
+      if (ws) {
+        ws.close();
+        ws = null;
+      }
+
+      setMode("test");
+      statusEl.textContent = "Testmodus";
+    }
+
+    connectLiveBtn.addEventListener("click", connectLive);
+    disconnectLiveBtn.addEventListener("click", disconnectLive);
+
+    /******************************************************************
+     * 17) ANIMATION
      ******************************************************************/
     function animate() {
       requestAnimationFrame(animate);
@@ -505,7 +636,7 @@
     }
 
     /******************************************************************
-     * 16) RESIZE
+     * 18) RESIZE
      ******************************************************************/
     window.addEventListener("resize", () => {
       const width = sceneContainer.clientWidth;
@@ -517,8 +648,9 @@
     });
 
     /******************************************************************
-     * 17) START
+     * 19) START
      ******************************************************************/
+    setMode("test");
     updatePhonePose();
     animate();
   </script>
