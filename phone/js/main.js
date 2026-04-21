@@ -15,20 +15,16 @@ import {
   estimateMarkerPose,
   estimateDistanceFromMarker
 } from "./detector.js";
-import {
-  drawMarkers,
-  drawAxes,
-  drawInfo
-} from "./overlay.js";
-import {
-  FOCAL_LENGTH_PX
-} from "./config.js";
-import {
-  smoothMarker,
-  smoothDistance,
-  resetTracking
-} from "./tracking.js";
+import { drawMarkers, drawAxes, drawInfo } from "./overlay.js";
+import { FOCAL_LENGTH_PX } from "./config.js";
+import { smoothMarker, smoothDistance, resetTracking } from "./tracking.js";
 import { calculateMarkerPosition } from "./positioning.js";
+
+/**
+ * WICHTIG:
+ * main.js importiert camera.js
+ * aber camera.js importiert NICHT zurück main.js
+ */
 
 let elements = null;
 let lastMarkers = [];
@@ -59,22 +55,34 @@ function init() {
   bindEvents();
   updateStatusUI();
   updateTrackingUI();
+
+  console.log("main.js initialisiert");
 }
 
 function bindEvents() {
   elements.startCameraBtn.addEventListener("click", async () => {
-    await startCamera();
+    console.log("Start-Button geklickt");
+
+    const ok = await startCamera();
+
     updateStatusUI();
     updateTrackingUI();
+
+    if (!ok) {
+      console.log("Kamerastart fehlgeschlagen");
+    }
   });
 
   elements.stopCameraBtn.addEventListener("click", () => {
+    console.log("Stop-Button geklickt");
+
     stopCamera();
     lastMarkers = [];
     lastReferenceMarker = null;
     lastReferencePose = null;
     resetTracking();
     resetPositioning();
+
     updateStatusUI();
     updateTrackingUI();
   });

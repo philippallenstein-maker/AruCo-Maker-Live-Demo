@@ -16,6 +16,9 @@ import {
  * - Kamera stoppen
  * - Video proportional ins Canvas zeichnen
  * - optional pro Frame Callback ausführen
+ *
+ * WICHTIG:
+ * Diese Datei importiert NICHTS aus main.js.
  */
 
 let videoElement = null;
@@ -25,9 +28,6 @@ let canvasWrapper = null;
 
 let onFrameCallback = null;
 
-/**
- * Initialisiert das Modul mit DOM-Elementen.
- */
 export function initCamera({ video, canvas }) {
   videoElement = video;
   canvasElement = canvas;
@@ -35,16 +35,10 @@ export function initCamera({ video, canvas }) {
   canvasWrapper = canvas.parentElement;
 }
 
-/**
- * Registriert einen Callback, der nach jedem gezeichneten Frame läuft.
- */
 export function setOnFrameCallback(callback) {
   onFrameCallback = callback;
 }
 
-/**
- * Gibt die Canvas-Referenzen an andere Module zurück.
- */
 export function getCanvasContext() {
   return canvasContext;
 }
@@ -53,9 +47,6 @@ export function getCanvasElement() {
   return canvasElement;
 }
 
-/**
- * Startet die Kamera.
- */
 export async function startCamera() {
   try {
     setStatus("Kamera wird gestartet...");
@@ -79,15 +70,14 @@ export async function startCamera() {
     setStatus("Kamera läuft");
 
     startRenderLoop();
+    return true;
   } catch (error) {
     console.error("Fehler beim Starten der Kamera:", error);
     setStatus("Kamerafehler");
+    return false;
   }
 }
 
-/**
- * Stoppt die Kamera sauber.
- */
 export function stopCamera() {
   const stream = getStream();
   const animationFrameId = getAnimationFrameId();
@@ -119,9 +109,6 @@ export function stopCamera() {
   setStatus("Kamera gestoppt");
 }
 
-/**
- * Passt Canvas UND Wrapper an das echte Videoformat an.
- */
 function syncCanvasToVideo() {
   const videoWidth = videoElement.videoWidth;
   const videoHeight = videoElement.videoHeight;
@@ -139,9 +126,6 @@ function syncCanvasToVideo() {
   canvasElement.style.height = "100%";
 }
 
-/**
- * Startet die Render-Schleife.
- */
 function startRenderLoop() {
   function render() {
     if (videoElement && canvasContext && videoElement.readyState >= 2) {
