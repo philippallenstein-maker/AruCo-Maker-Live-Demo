@@ -76,16 +76,22 @@ export function drawAxes(ctx, canvas, markerPose) {
     z: 0
   });
 
-  /**
-   * Wichtig:
-   * Z-Achse umgedreht, damit sie optisch "aus dem Marker heraus"
-   * statt zur Kamera hin wirkt.
-   */
-  const zAxis = projectPoint(canvas, markerPose.rotation, markerPose.translation, {
+  // Roh berechnete Z-Achse
+  const zAxisRaw = projectPoint(canvas, markerPose.rotation, markerPose.translation, {
     x: 0,
     y: 0,
     z: AXIS_LENGTH_METERS
   });
+
+  /**
+   * Für die Darstellung spiegeln wir die blaue Achse am Ursprung,
+   * damit sie optisch "aus dem Marker heraus" zeigt.
+   * Das ist nur ein Visualisierungs-Fix.
+   */
+  const zAxis = {
+    x: origin.x + (origin.x - zAxisRaw.x),
+    y: origin.y + (origin.y - zAxisRaw.y)
+  };
 
   // X = rot
   ctx.beginPath();
