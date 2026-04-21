@@ -2,10 +2,10 @@ import { setPose, setWebSocket, getWebSocket } from "./state.js";
 import { getUI, setStatus, updateModeUI, updateValueUI } from "./ui.js";
 
 /**
- * Diese Datei ist nur für den Live-Modus zuständig:
- * - WSS verbinden
- * - Nachrichten empfangen
- * - Pose setzen
+ * Live-Modus:
+ * - verbindet den Viewer per WSS
+ * - empfängt Tracking-Daten vom Phone
+ * - mappt sie testweise auf die Viewer-Pose
  */
 
 export function initLiveMode() {
@@ -15,9 +15,6 @@ export function initLiveMode() {
   ui.disconnectLiveBtn.addEventListener("click", disconnectLive);
 }
 
-/**
- * Startet den Live-Modus.
- */
 function connectLive() {
   const ui = getUI();
   const wsUrl = ui.wsUrlInput.value.trim();
@@ -39,6 +36,7 @@ function connectLive() {
   ws.onopen = () => {
     updateModeUI("live");
     setStatus("Live verbunden");
+    console.log("Viewer WebSocket verbunden");
   };
 
   ws.onerror = (error) => {
@@ -50,35 +48,46 @@ function connectLive() {
     updateModeUI("test");
     setStatus("Live getrennt");
     setWebSocket(null);
+    console.log("Viewer WebSocket getrennt");
   };
 
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
+      console.log("Viewer Nachricht:", msg);
 
       if (msg.type === "tracking" && msg.data) {
-  console.log("Viewer empfängt Tracking:", msg.data);
+        const normX = Number(msg.data.normX) || 0;
+        const normY = Number(msg.data.normY) || 0;
+        const distance = Number(msg.data.distance) || 1.2;
 
-  setPose({
-    x: 0.4 + (msg.data.normX || 0) * 0.4,
-    y: 0.3 - (msg.data.normY || 0) * 0.3,
-    z: msg.data.distance || 1.2,
-    yaw: 0,
-    pitch: 0,
-    roll: 0
-  });
+        /**
+         * Erstmal bewusst simples Test-Mapping:
+         * - X aus normX
+         * - Y aus normY
+         * - Z aus Distanz
+         *
+         * Lokales Marker-KS:
+         * - Mitte ungefähr bei x=0.4, y=0.3
+         */
+        setPose({
+          x: 0.4 + normX * 0.4,
+          y: 0.3 - normY * 0.3,
+          z: distance,
+          yaw: 0,
+          pitch: 0,
+          roll: 0
+        });
 
-  updateValueUI();
-}
+        updateValueUI();
+        setStatus(`Live Tracking – Ref ${msg.data.referenceId ?? "-"}`);
+      }
     } catch (error) {
       console.error("Fehler beim Verarbeiten der Live-Daten:", error);
     }
   };
 }
 
-/**
- * Trennt den Live-Modus.
- */
 function disconnectLive() {
   const ws = getWebSocket();
 
