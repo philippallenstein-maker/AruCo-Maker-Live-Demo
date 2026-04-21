@@ -1,5 +1,7 @@
 import { calculateMarkerPosition } from "./positioning.js";
+import { smoothMarker, smoothDistance, resetTracking } from "./tracking.js";
 import { state, setStatus, setPositioning, resetPositioning } from "./state.js";
+import { connectWebSocket, disconnectWebSocket, sendTrackingData } from "./websocket.js";
 import {
   initCamera,
   startCamera,
@@ -39,14 +41,15 @@ init();
 
 function init() {
   elements = {
-    startCameraBtn: document.getElementById("startCameraBtn"),
-    stopCameraBtn: document.getElementById("stopCameraBtn"),
-    statusValue: document.getElementById("statusValue"),
-    referenceIdValue: document.getElementById("referenceIdValue"),
-    distanceValue: document.getElementById("distanceValue"),
-    video: document.getElementById("video"),
-    canvas: document.getElementById("canvas")
-  };
+  startCameraBtn: document.getElementById("startCameraBtn"),
+  stopCameraBtn: document.getElementById("stopCameraBtn"),
+  statusValue: document.getElementById("statusValue"),
+  wsStatusValue: document.getElementById("wsStatusValue"),
+  referenceIdValue: document.getElementById("referenceIdValue"),
+  distanceValue: document.getElementById("distanceValue"),
+  video: document.getElementById("video"),
+  canvas: document.getElementById("canvas")
+};
 
   initCamera({
     video: elements.video,
@@ -62,20 +65,22 @@ function init() {
 
 function bindEvents() {
   elements.startCameraBtn.addEventListener("click", async () => {
-    await startCamera();
-    updateStatusUI();
-    updateTrackingUI();
-  });
+  connectWebSocket();
+  await startCamera();
+  updateStatusUI();
+  updateTrackingUI();
+});
 
   elements.stopCameraBtn.addEventListener("click", () => {
-    stopCamera();
-    lastMarkers = [];
-    lastReferenceMarker = null;
-    lastReferencePose = null;
-    resetTracking();
-    updateStatusUI();
-    updateTrackingUI();
-  });
+  stopCamera();
+  disconnectWebSocket();
+  lastMarkers = [];
+  lastReferenceMarker = null;
+  lastReferencePose = null;
+  resetTracking();
+  updateStatusUI();
+  updateTrackingUI();
+});
 }
 
 function handleFrame() {
@@ -153,11 +158,18 @@ function handleFrame() {
   }
 
   drawInfo(ctx, lastReferenceMarker, state.distance);
+  sendTrackingData();
 }
 
 export function updateStatusUI() {
   if (!elements) return;
+
   elements.statusValue.textContent = state.status;
+
+  if (elements.wsStatusValue) {
+    elements.wsStatusValue.textContent =
+      state.status.includes("WebSocket verbunden") ? "verbunden" : "nicht verbunden";
+  }
 }
 
 export function updateTrackingUI() {

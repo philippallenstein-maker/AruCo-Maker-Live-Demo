@@ -8,6 +8,8 @@
  */
 export const MARKER_SIZE = 0.10;
 
+
+
 /**
  * Nur diese Marker-IDs sind für unser Setup relevant.
  */
@@ -58,4 +60,4 @@ export const FOCAL_LENGTH_PX = 900;
  * Später für die getrennte Sendelogik.
  * Im ersten Schritt lassen wir das noch ungenutzt.
  */
-export const WS_URL = "";
+export const WS_URL = "wss://scaling-chainsaw-x5g5r9gj575pfppwq-8080.app.github.dev/";
