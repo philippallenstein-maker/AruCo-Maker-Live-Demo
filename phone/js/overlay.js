@@ -61,7 +61,11 @@ export function drawAxes(ctx, canvas, markerPose) {
   const origin = projectPoint(canvas, markerPose.rotation, markerPose.translation, { x: 0, y: 0, z: 0 });
   const xAxis = projectPoint(canvas, markerPose.rotation, markerPose.translation, { x: AXIS_LENGTH_METERS, y: 0, z: 0 });
   const yAxis = projectPoint(canvas, markerPose.rotation, markerPose.translation, { x: 0, y: AXIS_LENGTH_METERS, z: 0 });
-  const zAxis = projectPoint(canvas, markerPose.rotation, markerPose.translation, { x: 0, y: 0, z: AXIS_LENGTH_METERS });
+  const zAxis = projectPoint(canvas, markerPose.rotation, markerPose.translation, {
+  x: 0,
+  y: 0,
+  z: -AXIS_LENGTH_METERS
+});
 
   // X = rot
   ctx.beginPath();

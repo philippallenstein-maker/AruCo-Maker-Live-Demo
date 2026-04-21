@@ -16,7 +16,15 @@ export const state = {
   referenceMarkerId: null,
   distance: null,
   frameCounter: 0,
-  animationFrameId: null
+  animationFrameId: null,
+
+  positioning: {
+    centerX: null,
+    centerY: null,
+    normX: null,
+    normY: null,
+    distance: null
+  }
 };
 
 /**
@@ -102,4 +110,29 @@ export function getAnimationFrameId() {
 export function resetTrackingInfo() {
   state.referenceMarkerId = null;
   state.distance = null;
+  state.positioning = {
+    centerX: null,
+    centerY: null,
+    normX: null,
+    normY: null,
+    distance: null
+  };
+}
+
+
+export function setPositioning(positioning) {
+  state.positioning = {
+    ...state.positioning,
+    ...positioning
+  };
+}
+
+export function resetPositioning() {
+  state.positioning = {
+    centerX: null,
+    centerY: null,
+    normX: null,
+    normY: null,
+    distance: null
+  };
 }

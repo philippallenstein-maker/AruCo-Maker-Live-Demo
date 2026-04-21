@@ -1,4 +1,5 @@
-import { state, setStatus } from "./state.js";
+import { calculateMarkerPosition } from "./positioning.js";
+import { state, setStatus, setPositioning, resetPositioning } from "./state.js";
 import {
   initCamera,
   startCamera,
@@ -101,19 +102,30 @@ function handleFrame() {
       let rawDistance = null;
 
       if (referenceMarker) {
-        referencePose = estimateMarkerPose(referenceMarker, canvas);
+  referencePose = estimateMarkerPose(referenceMarker, canvas);
 
-        rawDistance = estimateDistanceFromMarker(
-          referenceMarker,
-          FOCAL_LENGTH_PX,
-          0.2,
-          5.0
-        );
+  rawDistance = estimateDistanceFromMarker(
+    referenceMarker,
+    FOCAL_LENGTH_PX,
+    0.2,
+    5.0
+  );
 
-        smoothDistance(rawDistance);
-      } else {
-        resetTracking();
-      }
+  const smoothedDistance = smoothDistance(rawDistance);
+
+  const positioning = calculateMarkerPosition(
+    referenceMarker,
+    canvas,
+    smoothedDistance
+  );
+
+  if (positioning) {
+    setPositioning(positioning);
+  }
+} else {
+  resetTracking();
+  resetPositioning();
+}
 
       lastMarkers = markers;
       lastReferenceMarker = referenceMarker;
@@ -156,4 +168,17 @@ export function updateTrackingUI() {
 
   elements.distanceValue.textContent =
     state.distance !== null ? Number(state.distance).toFixed(2) : "-";
+
+  const normXEl = document.getElementById("normXValue");
+  const normYEl = document.getElementById("normYValue");
+
+  if (normXEl) {
+    normXEl.textContent =
+      state.positioning.normX !== null ? Number(state.positioning.normX).toFixed(2) : "-";
+  }
+
+  if (normYEl) {
+    normYEl.textContent =
+      state.positioning.normY !== null ? Number(state.positioning.normY).toFixed(2) : "-";
+  }
 }
