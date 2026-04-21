@@ -19,6 +19,11 @@ import { drawMarkers, drawAxes, drawInfo } from "./overlay.js";
 import { FOCAL_LENGTH_PX } from "./config.js";
 import { smoothMarker, smoothDistance, resetTracking } from "./tracking.js";
 import { calculateMarkerPosition } from "./positioning.js";
+import {
+  connectWebSocket,
+  disconnectWebSocket,
+  setWebSocketStatusCallback
+} from "./websocket.js";
 
 /**
  * WICHTIG:
@@ -30,6 +35,7 @@ let elements = null;
 let lastMarkers = [];
 let lastReferenceMarker = null;
 let lastReferencePose = null;
+let wsConnected = false;
 
 init();
 
@@ -52,6 +58,11 @@ function init() {
 
   setOnFrameCallback(handleFrame);
 
+  setWebSocketStatusCallback((isConnected) => {
+  wsConnected = isConnected;
+  updateStatusUI();
+});
+
   bindEvents();
   updateStatusUI();
   updateTrackingUI();
@@ -61,31 +72,36 @@ function init() {
 
 function bindEvents() {
   elements.startCameraBtn.addEventListener("click", async () => {
-    console.log("Start-Button geklickt");
+  console.log("Start-Button geklickt");
 
-    const ok = await startCamera();
+  const ok = await startCamera();
 
-    updateStatusUI();
-    updateTrackingUI();
+  if (ok) {
+    connectWebSocket();
+  }
 
-    if (!ok) {
-      console.log("Kamerastart fehlgeschlagen");
-    }
-  });
+  updateStatusUI();
+  updateTrackingUI();
+
+  if (!ok) {
+    console.log("Kamerastart fehlgeschlagen");
+  }
+});
 
   elements.stopCameraBtn.addEventListener("click", () => {
-    console.log("Stop-Button geklickt");
+  console.log("Stop-Button geklickt");
 
-    stopCamera();
-    lastMarkers = [];
-    lastReferenceMarker = null;
-    lastReferencePose = null;
-    resetTracking();
-    resetPositioning();
+  disconnectWebSocket();
+  stopCamera();
+  lastMarkers = [];
+  lastReferenceMarker = null;
+  lastReferencePose = null;
+  resetTracking();
+  resetPositioning();
 
-    updateStatusUI();
-    updateTrackingUI();
-  });
+  updateStatusUI();
+  updateTrackingUI();
+});
 }
 
 function handleFrame() {
@@ -170,7 +186,7 @@ export function updateStatusUI() {
   elements.statusValue.textContent = state.status;
 
   if (elements.wsStatusValue) {
-    elements.wsStatusValue.textContent = "deaktiviert";
+    elements.wsStatusValue.textContent = wsConnected ? "verbunden" : "nicht verbunden";
   }
 }
 

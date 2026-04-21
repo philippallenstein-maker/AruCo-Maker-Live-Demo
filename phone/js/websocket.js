@@ -1,83 +1,60 @@
 import { WS_URL } from "./config.js";
-import { state, setStatus, setWsConnected } from "./state.js";
-import { updateStatusUI } from "./main.js";
+import { setStatus } from "./state.js";
 
 let socket = null;
+let onConnectionChange = null;
 
-/**
- * Baut die WebSocket-Verbindung auf.
- */
+export function setWebSocketStatusCallback(callback) {
+  onConnectionChange = callback;
+}
+
 export function connectWebSocket() {
   if (!WS_URL) {
     console.warn("Keine WS_URL gesetzt.");
     setStatus("Keine WS-URL gesetzt");
-    setWsConnected(false);
-    updateStatusUI();
+    notify(false);
     return;
   }
 
   if (socket && socket.readyState === WebSocket.OPEN) {
-    console.log("Phone WebSocket bereits verbunden");
+    console.log("WebSocket bereits verbunden");
+    notify(true);
     return;
   }
 
-  console.log("Phone versucht WebSocket-Verbindung zu:", WS_URL);
+  console.log("Verbinde WebSocket zu:", WS_URL);
 
   socket = new WebSocket(WS_URL);
 
   socket.onopen = () => {
     console.log("Phone WebSocket verbunden");
-    setWsConnected(true);
     setStatus("Kamera läuft – WebSocket verbunden");
-    updateStatusUI();
+    notify(true);
   };
 
   socket.onerror = (error) => {
     console.error("Phone WebSocket Fehler:", error);
-    setWsConnected(false);
     setStatus("WebSocket-Fehler");
-    updateStatusUI();
+    notify(false);
   };
 
   socket.onclose = () => {
     console.log("Phone WebSocket getrennt");
-    setWsConnected(false);
-    updateStatusUI();
+    notify(false);
   };
 }
 
-/**
- * Trennt die WebSocket-Verbindung.
- */
 export function disconnectWebSocket() {
   if (socket) {
     socket.close();
     socket = null;
   }
 
-  setWsConnected(false);
-  updateStatusUI();
+  notify(false);
 }
 
-/**
- * Sendet Tracking-Daten an den Viewer.
- */
-export function sendTrackingData() {
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
-    return;
+function notify(isConnected) {
+  if (typeof onConnectionChange === "function") {
+    onConnectionChange(isConnected);
   }
-
-  const payload = {
-    type: "pose",
-    data: {
-      referenceId: state.referenceMarkerId,
-      distance: state.distance,
-      normX: state.positioning?.normX ?? null,
-      normY: state.positioning?.normY ?? null,
-      centerX: state.positioning?.centerX ?? null,
-      centerY: state.positioning?.centerY ?? null
-    }
-  };
-
-  socket.send(JSON.stringify(payload));
 }
