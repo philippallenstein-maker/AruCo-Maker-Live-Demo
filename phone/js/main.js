@@ -168,7 +168,7 @@ export function updateStatusUI() {
 
   if (elements.wsStatusValue) {
     elements.wsStatusValue.textContent =
-      state.status.includes("WebSocket verbunden") ? "verbunden" : "nicht verbunden";
+      state.wsConnected ? "verbunden" : "nicht verbunden";
   }
 }
 

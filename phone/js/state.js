@@ -18,6 +18,7 @@ export const state = {
   distance: null,
   frameCounter: 0,
   animationFrameId: null,
+  wsConnected: false,
 
   positioning: {
     centerX: null,
@@ -27,6 +28,10 @@ export const state = {
     distance: null
   }
 };
+
+export function setWsConnected(value) {
+  state.wsConnected = value;
+}
 
 /**
  * Setzt den aktuellen Stream.

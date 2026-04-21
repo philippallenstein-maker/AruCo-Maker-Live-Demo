@@ -1,22 +1,13 @@
 import { WS_URL } from "./config.js";
-import { state, setStatus } from "./state.js";
-
-/**
- * WebSocket-Modul für die Phone-Seite.
- * Aufgabe:
- * - Verbindung zum Server herstellen
- * - Daten senden
- * - Verbindung sauber trennen
- */
+import { state, setStatus, setWsConnected } from "./state.js";
 
 let socket = null;
 
-/**
- * Baut die WebSocket-Verbindung auf.
- */
 export function connectWebSocket() {
   if (!WS_URL) {
     console.warn("Keine WS_URL gesetzt.");
+    setStatus("Keine WS-URL gesetzt");
+    setWsConnected(false);
     return;
   }
 
@@ -28,32 +19,31 @@ export function connectWebSocket() {
 
   socket.onopen = () => {
     console.log("Phone WebSocket verbunden");
+    setWsConnected(true);
     setStatus("Kamera läuft – WebSocket verbunden");
   };
 
   socket.onerror = (error) => {
     console.error("Phone WebSocket Fehler:", error);
+    setWsConnected(false);
     setStatus("WebSocket-Fehler");
   };
 
   socket.onclose = () => {
     console.log("Phone WebSocket getrennt");
+    setWsConnected(false);
   };
 }
 
-/**
- * Trennt die WebSocket-Verbindung.
- */
 export function disconnectWebSocket() {
   if (socket) {
     socket.close();
     socket = null;
   }
+
+  setWsConnected(false);
 }
 
-/**
- * Sendet aktuelle Tracking-Daten an den Viewer.
- */
 export function sendTrackingData() {
   if (!socket || socket.readyState !== WebSocket.OPEN) {
     return;
