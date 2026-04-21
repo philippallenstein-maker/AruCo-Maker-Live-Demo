@@ -71,6 +71,7 @@ export function sendTrackingData() {
     }
   };
 
+  console.log("Sende Tracking:", payload);
   socket.send(JSON.stringify(payload));
 }
 
