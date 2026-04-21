@@ -22,7 +22,8 @@ import { calculateMarkerPosition } from "./positioning.js";
 import {
   connectWebSocket,
   disconnectWebSocket,
-  setWebSocketStatusCallback
+  setWebSocketStatusCallback,
+  sendTrackingData
 } from "./websocket.js";
 
 /**
@@ -173,11 +174,13 @@ function handleFrame() {
 
   drawMarkers(ctx, lastMarkers, state.referenceMarkerId);
 
-  if (lastReferencePose) {
-    drawAxes(ctx, canvas, lastReferencePose);
-  }
+if (lastReferencePose) {
+  drawAxes(ctx, canvas, lastReferencePose);
+}
 
-  drawInfo(ctx, lastReferenceMarker, state.distance);
+drawInfo(ctx, lastReferenceMarker, state.distance);
+
+sendTrackingData();
 }
 
 export function updateStatusUI() {

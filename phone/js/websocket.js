@@ -1,5 +1,5 @@
 import { WS_URL } from "./config.js";
-import { setStatus } from "./state.js";
+import { setStatus, state } from "./state.js";
 
 let socket = null;
 let onConnectionChange = null;
@@ -51,6 +51,27 @@ export function disconnectWebSocket() {
   }
 
   notify(false);
+}
+
+export function sendTrackingData() {
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    return;
+  }
+
+  const payload = {
+    type: "tracking",
+    data: {
+      referenceId: state.referenceMarkerId,
+      distance: state.distance,
+      normX: state.positioning?.normX ?? null,
+      normY: state.positioning?.normY ?? null,
+      centerX: state.positioning?.centerX ?? null,
+      centerY: state.positioning?.centerY ?? null,
+      ts: Date.now()
+    }
+  };
+
+  socket.send(JSON.stringify(payload));
 }
 
 function notify(isConnected) {
