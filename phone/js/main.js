@@ -71,6 +71,7 @@ function bindEvents() {
     lastMarkers = [];
     lastReferenceMarker = null;
     lastReferencePose = null;
+    resetTracking();
     updateStatusUI();
     updateTrackingUI();
   });
@@ -82,7 +83,7 @@ function handleFrame() {
 
   if (!ctx || !canvas) return;
 
-  // Debug: wir sehen sofort, dass der Loop läuft
+  // Debug-Anzeige
   ctx.fillStyle = "white";
   ctx.font = "18px Arial";
   ctx.fillText("Loop aktiv", 10, canvas.height - 20);
@@ -91,25 +92,27 @@ function handleFrame() {
     ensureDetector(canvas.width);
 
     if (shouldRunDetection()) {
-        if (!referenceMarker) {
-  resetTracking();
-}
       const markers = detectMarkers(ctx, canvas);
+
       let referenceMarker = chooseReferenceMarker(markers);
-        referenceMarker = smoothMarker(referenceMarker);
+      referenceMarker = smoothMarker(referenceMarker);
 
       let referencePose = null;
+      let rawDistance = null;
 
       if (referenceMarker) {
         referencePose = estimateMarkerPose(referenceMarker, canvas);
-        const rawDistance = estimateDistanceFromMarker(
-  referenceMarker,
-  FOCAL_LENGTH_PX,
-  0.2,
-  5.0
-);
 
-const distance = smoothDistance(rawDistance);
+        rawDistance = estimateDistanceFromMarker(
+          referenceMarker,
+          FOCAL_LENGTH_PX,
+          0.2,
+          5.0
+        );
+
+        smoothDistance(rawDistance);
+      } else {
+        resetTracking();
       }
 
       lastMarkers = markers;

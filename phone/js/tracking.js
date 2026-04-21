@@ -1,38 +1,26 @@
-/**
- * Tracking-Modul:
- * - Glättet Marker (Corners)
- * - Glättet Distanz
- * - Hält Zustand zwischen Frames
- */
+import { setDistance } from "./state.js";
 
 let lastMarkerId = null;
 let smoothedCorners = null;
 let smoothedDistance = null;
 
-/**
- * Stärke der Glättung:
- * 0.0 = keine Glättung
- * 1.0 = extrem träge
- */
-const SMOOTHING = 0.5;
+const SMOOTHING = 0.6;
 
-/**
- * Glättet Marker-Ecken
- */
 export function smoothMarker(marker) {
   if (!marker) {
     resetTracking();
     return null;
   }
 
-  // Wenn Marker wechselt → Reset
   if (marker.id !== lastMarkerId) {
     lastMarkerId = marker.id;
     smoothedCorners = marker.corners.map(c => ({ x: c.x, y: c.y }));
-    return marker;
+    return {
+      ...marker,
+      corners: smoothedCorners
+    };
   }
 
-  // Glätten
   for (let i = 0; i < marker.corners.length; i++) {
     smoothedCorners[i].x =
       SMOOTHING * smoothedCorners[i].x +
@@ -49,17 +37,16 @@ export function smoothMarker(marker) {
   };
 }
 
-/**
- * Glättet Distanz
- */
 export function smoothDistance(distance) {
   if (distance === null) {
     smoothedDistance = null;
+    setDistance(null);
     return null;
   }
 
   if (smoothedDistance === null) {
     smoothedDistance = distance;
+    setDistance(distance);
     return distance;
   }
 
@@ -67,14 +54,13 @@ export function smoothDistance(distance) {
     SMOOTHING * smoothedDistance +
     (1 - SMOOTHING) * distance;
 
+  setDistance(smoothedDistance);
   return smoothedDistance;
 }
 
-/**
- * Reset bei Markerverlust
- */
 export function resetTracking() {
   lastMarkerId = null;
   smoothedCorners = null;
   smoothedDistance = null;
+  setDistance(null);
 }
