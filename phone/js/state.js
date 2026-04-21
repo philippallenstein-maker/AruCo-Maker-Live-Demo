@@ -7,6 +7,7 @@
  * - Referenzmarker
  * - Distanz
  * - Frame-Zähler
+ * - Positioning-Daten
  */
 
 export const state = {
@@ -105,7 +106,7 @@ export function getAnimationFrameId() {
 }
 
 /**
- * Setzt Referenzmarker + Distanz zurück.
+ * Setzt Referenzmarker + Distanz + Positioning zurück.
  */
 export function resetTrackingInfo() {
   state.referenceMarkerId = null;
@@ -119,7 +120,9 @@ export function resetTrackingInfo() {
   };
 }
 
-
+/**
+ * Setzt Positioning-Daten.
+ */
 export function setPositioning(positioning) {
   state.positioning = {
     ...state.positioning,
@@ -127,6 +130,9 @@ export function setPositioning(positioning) {
   };
 }
 
+/**
+ * Setzt Positioning zurück.
+ */
 export function resetPositioning() {
   state.positioning = {
     centerX: null,

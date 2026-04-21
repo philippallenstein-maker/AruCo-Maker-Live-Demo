@@ -58,14 +58,34 @@ export function drawMarkers(ctx, markers, referenceMarkerId) {
 export function drawAxes(ctx, canvas, markerPose) {
   if (!markerPose) return;
 
-  const origin = projectPoint(canvas, markerPose.rotation, markerPose.translation, { x: 0, y: 0, z: 0 });
-  const xAxis = projectPoint(canvas, markerPose.rotation, markerPose.translation, { x: AXIS_LENGTH_METERS, y: 0, z: 0 });
-  const yAxis = projectPoint(canvas, markerPose.rotation, markerPose.translation, { x: 0, y: AXIS_LENGTH_METERS, z: 0 });
+  const origin = projectPoint(canvas, markerPose.rotation, markerPose.translation, {
+    x: 0,
+    y: 0,
+    z: 0
+  });
+
+  const xAxis = projectPoint(canvas, markerPose.rotation, markerPose.translation, {
+    x: AXIS_LENGTH_METERS,
+    y: 0,
+    z: 0
+  });
+
+  const yAxis = projectPoint(canvas, markerPose.rotation, markerPose.translation, {
+    x: 0,
+    y: AXIS_LENGTH_METERS,
+    z: 0
+  });
+
+  /**
+   * Wichtig:
+   * Z-Achse umgedreht, damit sie optisch "aus dem Marker heraus"
+   * statt zur Kamera hin wirkt.
+   */
   const zAxis = projectPoint(canvas, markerPose.rotation, markerPose.translation, {
-  x: 0,
-  y: 0,
-  z: -AXIS_LENGTH_METERS
-});
+    x: 0,
+    y: 0,
+    z: -AXIS_LENGTH_METERS
+  });
 
   // X = rot
   ctx.beginPath();
@@ -118,8 +138,22 @@ export function drawInfo(ctx, referenceMarker, distance) {
     ctx.fillText(`Center Y: ${center.y.toFixed(0)} px`, 10, 120);
   }
 
-  ctx.fillText(`Focal: ${FOCAL_LENGTH_PX}px`, 10, 150);
-  ctx.fillText(`Status: ${state.status}`, 10, 180);
+  if (state.positioning) {
+    ctx.fillText(
+      `Norm X: ${state.positioning.normX !== null ? state.positioning.normX.toFixed(2) : "-"}`,
+      10,
+      150
+    );
+
+    ctx.fillText(
+      `Norm Y: ${state.positioning.normY !== null ? state.positioning.normY.toFixed(2) : "-"}`,
+      10,
+      180
+    );
+  }
+
+  ctx.fillText(`Focal: ${FOCAL_LENGTH_PX}px`, 10, 210);
+  ctx.fillText(`Status: ${state.status}`, 10, 240);
 }
 
 /**
