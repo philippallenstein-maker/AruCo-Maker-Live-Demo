@@ -56,18 +56,20 @@ function connectLive() {
     try {
       const msg = JSON.parse(event.data);
 
-      if (msg.type === "pose" && msg.data) {
-        setPose({
-          x: Number(msg.data.x) || 0,
-          y: Number(msg.data.y) || 0,
-          z: Number(msg.data.z) || 0,
-          yaw: Number(msg.data.yaw) || 0,
-          pitch: Number(msg.data.pitch) || 0,
-          roll: Number(msg.data.roll) || 0
-        });
+      if (msg.type === "tracking" && msg.data) {
+  console.log("Viewer empfängt Tracking:", msg.data);
 
-        updateValueUI();
-      }
+  setPose({
+    x: 0.4 + (msg.data.normX || 0) * 0.4,
+    y: 0.3 - (msg.data.normY || 0) * 0.3,
+    z: msg.data.distance || 1.2,
+    yaw: 0,
+    pitch: 0,
+    roll: 0
+  });
+
+  updateValueUI();
+}
     } catch (error) {
       console.error("Fehler beim Verarbeiten der Live-Daten:", error);
     }
