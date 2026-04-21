@@ -1,8 +1,12 @@
 import { WS_URL } from "./config.js";
-import { setStatus, state } from "./state.js";
+import { state, setStatus } from "./state.js";
 
 let socket = null;
 let onConnectionChange = null;
+let lastSendTs = 0;
+
+// maximal ca. 12 Updates pro Sekunde
+const SEND_INTERVAL_MS = 80;
 
 export function setWebSocketStatusCallback(callback) {
   onConnectionChange = callback;
@@ -58,6 +62,12 @@ export function sendTrackingData() {
     return;
   }
 
+  const now = Date.now();
+  if (now - lastSendTs < SEND_INTERVAL_MS) {
+    return;
+  }
+  lastSendTs = now;
+
   const payload = {
     type: "tracking",
     data: {
@@ -67,11 +77,10 @@ export function sendTrackingData() {
       normY: state.positioning?.normY ?? null,
       centerX: state.positioning?.centerX ?? null,
       centerY: state.positioning?.centerY ?? null,
-      ts: Date.now()
+      ts: now
     }
   };
 
-  console.log("Sende Tracking:", payload);
   socket.send(JSON.stringify(payload));
 }
 
