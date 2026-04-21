@@ -1,7 +1,4 @@
-import { calculateMarkerPosition } from "./positioning.js";
-import { smoothMarker, smoothDistance, resetTracking } from "./tracking.js";
 import { state, setStatus, setPositioning, resetPositioning } from "./state.js";
-import { connectWebSocket, disconnectWebSocket, sendTrackingData } from "./websocket.js";
 import {
   initCamera,
   startCamera,
@@ -31,6 +28,7 @@ import {
   smoothDistance,
   resetTracking
 } from "./tracking.js";
+import { calculateMarkerPosition } from "./positioning.js";
 
 let elements = null;
 let lastMarkers = [];
@@ -41,15 +39,15 @@ init();
 
 function init() {
   elements = {
-  startCameraBtn: document.getElementById("startCameraBtn"),
-  stopCameraBtn: document.getElementById("stopCameraBtn"),
-  statusValue: document.getElementById("statusValue"),
-  wsStatusValue: document.getElementById("wsStatusValue"),
-  referenceIdValue: document.getElementById("referenceIdValue"),
-  distanceValue: document.getElementById("distanceValue"),
-  video: document.getElementById("video"),
-  canvas: document.getElementById("canvas")
-};
+    startCameraBtn: document.getElementById("startCameraBtn"),
+    stopCameraBtn: document.getElementById("stopCameraBtn"),
+    statusValue: document.getElementById("statusValue"),
+    wsStatusValue: document.getElementById("wsStatusValue"),
+    referenceIdValue: document.getElementById("referenceIdValue"),
+    distanceValue: document.getElementById("distanceValue"),
+    video: document.getElementById("video"),
+    canvas: document.getElementById("canvas")
+  };
 
   initCamera({
     video: elements.video,
@@ -65,21 +63,21 @@ function init() {
 
 function bindEvents() {
   elements.startCameraBtn.addEventListener("click", async () => {
-  await startCamera();
-  connectWebSocket();
-  updateStatusUI();
-  updateTrackingUI();
-});
+    await startCamera();
+    updateStatusUI();
+    updateTrackingUI();
+  });
+
   elements.stopCameraBtn.addEventListener("click", () => {
-  stopCamera();
-  disconnectWebSocket();
-  lastMarkers = [];
-  lastReferenceMarker = null;
-  lastReferencePose = null;
-  resetTracking();
-  updateStatusUI();
-  updateTrackingUI();
-});
+    stopCamera();
+    lastMarkers = [];
+    lastReferenceMarker = null;
+    lastReferencePose = null;
+    resetTracking();
+    resetPositioning();
+    updateStatusUI();
+    updateTrackingUI();
+  });
 }
 
 function handleFrame() {
@@ -88,7 +86,6 @@ function handleFrame() {
 
   if (!ctx || !canvas) return;
 
-  // Debug-Anzeige
   ctx.fillStyle = "white";
   ctx.font = "18px Arial";
   ctx.fillText("Loop aktiv", 10, canvas.height - 20);
@@ -106,30 +103,30 @@ function handleFrame() {
       let rawDistance = null;
 
       if (referenceMarker) {
-  referencePose = estimateMarkerPose(referenceMarker, canvas);
+        referencePose = estimateMarkerPose(referenceMarker, canvas);
 
-  rawDistance = estimateDistanceFromMarker(
-    referenceMarker,
-    FOCAL_LENGTH_PX,
-    0.2,
-    5.0
-  );
+        rawDistance = estimateDistanceFromMarker(
+          referenceMarker,
+          FOCAL_LENGTH_PX,
+          0.2,
+          5.0
+        );
 
-  const smoothedDistance = smoothDistance(rawDistance);
+        const smoothedDistance = smoothDistance(rawDistance);
 
-  const positioning = calculateMarkerPosition(
-    referenceMarker,
-    canvas,
-    smoothedDistance
-  );
+        const positioning = calculateMarkerPosition(
+          referenceMarker,
+          canvas,
+          smoothedDistance
+        );
 
-  if (positioning) {
-    setPositioning(positioning);
-  }
-} else {
-  resetTracking();
-  resetPositioning();
-}
+        if (positioning) {
+          setPositioning(positioning);
+        }
+      } else {
+        resetTracking();
+        resetPositioning();
+      }
 
       lastMarkers = markers;
       lastReferenceMarker = referenceMarker;
@@ -157,7 +154,6 @@ function handleFrame() {
   }
 
   drawInfo(ctx, lastReferenceMarker, state.distance);
-  sendTrackingData();
 }
 
 export function updateStatusUI() {
@@ -166,8 +162,7 @@ export function updateStatusUI() {
   elements.statusValue.textContent = state.status;
 
   if (elements.wsStatusValue) {
-    elements.wsStatusValue.textContent =
-      state.wsConnected ? "verbunden" : "nicht verbunden";
+    elements.wsStatusValue.textContent = "deaktiviert";
   }
 }
 
