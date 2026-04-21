@@ -65,12 +65,11 @@ function init() {
 
 function bindEvents() {
   elements.startCameraBtn.addEventListener("click", async () => {
-  connectWebSocket();
   await startCamera();
+  connectWebSocket();
   updateStatusUI();
   updateTrackingUI();
 });
-
   elements.stopCameraBtn.addEventListener("click", () => {
   stopCamera();
   disconnectWebSocket();
